@@ -106,6 +106,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "chromium-ffi"
+version = "0.1.0"
+dependencies = [
+ "ffi-traits",
+]
+
+[[package]]
 name = "core_detect"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

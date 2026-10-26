@@ -99,6 +99,8 @@ dependencies = [
  "cef",
  "ffi-traits",
  "policy",
+ "serde",
+ "serde_json",
  "shell-core",
  "storage",
 ]

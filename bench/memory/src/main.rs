@@ -73,7 +73,7 @@ fn main() -> ExitCode {
     for scenario in Scenario::ALL {
         if !scenario.measurable_in_m0() {
             println!(
-                "{:<12} SKIPPED  (budget {} MB; needs Chromium, phase 1)",
+                "{:<12} SKIPPED  (budget {} MB; needs a running CEF browser; not automated yet)",
                 scenario.name(),
                 scenario.budget_mb()
             );

@@ -6,7 +6,7 @@ use cef::*;
 use ffi_traits::TabHandle;
 
 use crate::ctx;
-use crate::tab_layout::{rows, tab_dot, tab_layout};
+use crate::tab_layout::{clip_by_width, rows, tab_dot, tab_layout};
 
 /// 配色(ARGB)。ツールバーは淡いラベンダー、アクティブなタブは青、＋は桃色、★は黄色。
 mod palette {
@@ -148,16 +148,6 @@ fn box_layout(horizontal: bool) -> BoxLayoutSettings {
     }
 }
 
-fn ellipsize(text: &str, max_chars: usize) -> String {
-    let mut chars = text.chars();
-    let head: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_some() {
-        format!("{head}…")
-    } else {
-        head
-    }
-}
-
 impl Ui {
     /// ビューを作る(ウィンドウへの配置は `attach`)。
     pub fn build() -> (Self, Panel) {
@@ -234,7 +224,7 @@ impl Ui {
             add_child(&self.tab_strip, &row);
             row.set_background_color(palette::STRIP);
             for t in row_tabs {
-                let label = format!("{} {}", tab_dot(&t.url), ellipsize(&t.text, max_chars));
+                let label = format!("{} {}", tab_dot(&t.url), clip_by_width(&t.text, max_chars));
                 let colors = if t.active {
                     (palette::LAGOON, palette::WHITE)
                 } else {

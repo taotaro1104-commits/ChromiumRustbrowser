@@ -13,5 +13,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File apps/browser/run.ps1 [-Relea
 - 終了時と 30 秒ごとにセッションを保存。再起動で復元し、アクティブだったタブだけを実体化する(他は破棄状態)。
 - サンドボックスは常に有効。CEF の `bootstrap.exe` を `rustbrowser.exe` として置き、`rustbrowser.dll` の `RunWinMain` を呼ばせる
   (`run.ps1` が配置する。直接 `cargo run` では起動できない)。
+- 診断: プロファイル直下に空の `discard-now` ファイルを置くと、次の Tick(30 秒以内)で非表示のタブを破棄する。
 - 既知の制限(P1 で解消): 凍結は未実装(非表示のみ)、フォーム内容・スクロール位置は保存時に取得しない、
   この環境(AMD GPU)では GPU プロセスが再起動を繰り返すログが出る(描画はソフトウェアにフォールバック)。

@@ -1,0 +1,16 @@
+[package]
+name = "chromium-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ffi-traits = { path = "../ffi-traits" }
+
+# このクレートだけが `unsafe` を許す(C++ shim との C ABI 境界)。`unsafe` は `shim.rs` に閉じ込める。
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

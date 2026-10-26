@@ -19,6 +19,8 @@ shell-core = { path = "../../crates/shell-core" }
 browser-core = { path = "../../crates/browser-core" }
 storage = { path = "../../crates/storage" }
 policy = { path = "../../crates/policy" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 ffi-traits = { path = "../../crates/ffi-traits" }
 
 [profile.release]

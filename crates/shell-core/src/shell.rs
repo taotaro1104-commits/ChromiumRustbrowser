@@ -6,6 +6,7 @@ use policy::Policy;
 use storage::{Db, StorageError};
 use url::Url;
 
+use crate::redact::scrub_url;
 use crate::session::{SessionFile, SessionTabDto, MAX_RESTORED_TABS};
 
 const SEARCH_ENGINE: &str = "https://duckduckgo.com/";
@@ -22,6 +23,19 @@ pub enum ShellError {
     UnsupportedUrl(String),
     #[error("session error: {0}")]
     Session(String),
+}
+
+/// セッション内で内蔵スタートページを指す印。
+const HOME_MARKER: &str = "rustbrowser://home";
+
+/// ページ側から取得した状態。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageState {
+    pub scroll_y: u32,
+    /// 入力欄にフォーカスがある(入力中)。
+    pub editing: bool,
+    /// 入力欄の内容(`None` は入力なし)。
+    pub form_state: Option<String>,
 }
 
 pub struct Shell<H: WebContentsHost> {
@@ -116,6 +130,33 @@ impl<H: WebContentsHost> Shell<H> {
         })?)
     }
 
+    /// ページから取得した状態(スクロール位置・入力中か・入力欄の内容)を反映する。
+    /// 入力中のタブは凍結・破棄から保護される。他のフラグ(音声・WebRTC)は今の値を保つ。
+    pub fn update_page_state(
+        &mut self,
+        tab: TabHandle,
+        state: PageState,
+        now_ms: u64,
+    ) -> Result<(), ShellError> {
+        let Some(t) = self.store.state().tab(tab) else {
+            return Ok(());
+        };
+        let (audible, webrtc) = (t.audible, t.webrtc);
+        self.store.dispatch(Action::UpdateMeta {
+            tab,
+            title: None,
+            scroll_y: Some(state.scroll_y),
+            form_state: Some(state.form_state),
+        })?;
+        Ok(self.store.dispatch(Action::SetFlags {
+            tab,
+            audible,
+            form_editing: state.editing,
+            webrtc,
+            now_ms,
+        })?)
+    }
+
     pub fn tick(&mut self, now_ms: u64) -> Result<(), ShellError> {
         Ok(self.store.dispatch(Action::Tick { now_ms })?)
     }
@@ -149,7 +190,8 @@ impl<H: WebContentsHost> Shell<H> {
             .as_deref()
             .is_some_and(|p| url.starts_with(p));
         if is_web_url(url) && !internal && url.len() <= MAX_URL_BYTES {
-            self.db.record_visit(url, &clip_title(title), now_ms)?;
+            self.db
+                .record_visit(&scrub_url(url), &clip_title(title), now_ms)?;
         }
         Ok(())
     }
@@ -181,7 +223,7 @@ impl<H: WebContentsHost> Shell<H> {
         let Some(tab) = state.active.and_then(|h| state.tab(h)) else {
             return Ok(false);
         };
-        let (url, title) = (tab.url.clone(), tab.title.clone());
+        let (url, title) = (scrub_url(&tab.url), tab.title.clone());
         if self.db.is_bookmarked(&url)? {
             self.db.remove_bookmark(&url)?;
             Ok(false)
@@ -189,6 +231,11 @@ impl<H: WebContentsHost> Shell<H> {
             self.db.add_bookmark(&url, &title, now_ms)?;
             Ok(true)
         }
+    }
+
+    /// 保存用に秘匿情報を除いた URL で、ブックマーク済みかを調べる。
+    pub fn is_bookmarked(&self, url: &str) -> Result<bool, ShellError> {
+        Ok(self.db.is_bookmarked(&scrub_url(url))?)
     }
 
     pub fn suggest(
@@ -209,7 +256,7 @@ impl<H: WebContentsHost> Shell<H> {
             .snapshot()
             .into_iter()
             .map(|t| SessionTabDto {
-                url: t.url,
+                url: self.to_stored_url(&t.url),
                 title: t.title,
                 scroll_y: t.scroll_y,
                 form_state: t.form_state,
@@ -256,7 +303,19 @@ impl<H: WebContentsHost> Shell<H> {
         Ok(true)
     }
 
+    /// 内蔵ページの URL は起動ごとにポートが変わるため、保存時は固定の印に置き換える。
+    fn to_stored_url(&self, url: &str) -> String {
+        match &self.internal_prefix {
+            Some(p) if url.starts_with(p.as_str()) => HOME_MARKER.to_owned(),
+            _ => scrub_url(url),
+        }
+    }
+
     fn restorable_url(&self, raw: &str) -> Option<String> {
+        if raw == HOME_MARKER {
+            // 内蔵ページが無い(起動に失敗した)ときは、そのタブは復元しない。
+            return self.internal_prefix.clone();
+        }
         match Url::parse(raw) {
             Ok(u) => self.apply_policy(u).ok().map(Into::into),
             // 解析できない URL は core 側が拒否する。

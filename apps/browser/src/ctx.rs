@@ -84,6 +84,10 @@ impl Ctx {
     pub fn act(&mut self, action: UiAction) {
         let now = now_ms();
         let active = self.shell.store().state().active;
+        // 切り替える前に、今のタブの状態(スクロール・入力中)を取得しておく。
+        if let (Some(a), UiAction::NewTab | UiAction::ActivateTab(_)) = (active, action) {
+            self.shell.store().host().request_page_state(a);
+        }
         match action {
             UiAction::Back => self.with_browser(active, |b| b.go_back()),
             UiAction::Forward => self.with_browser(active, |b| b.go_forward()),
@@ -160,14 +164,49 @@ impl Ctx {
         report(self.shell.set_audible(tab, audible, now_ms()));
     }
 
+    /// ページから届いた状態(スクロール・入力中・入力欄)を反映する。
+    pub fn on_page_state(&mut self, tab: TabHandle, state: shell_core::PageState) {
+        report(self.shell.update_page_state(tab, state, now_ms()));
+    }
+
+    pub fn take_pending_form(&self, tab: TabHandle) -> Option<String> {
+        self.shell.store().host().take_pending_form(tab)
+    }
+
+    /// 実体のあるタブすべてに、ページ状態の取得を依頼する(結果は非同期に届く)。
+    fn request_page_states(&self) {
+        let state = self.shell.store().state();
+        for t in state
+            .tabs
+            .iter()
+            .filter(|t| t.visibility != browser_core::Visibility::Discarded)
+        {
+            self.shell.store().host().request_page_state(t.handle);
+        }
+    }
+
     pub fn take_pending_scroll(&self, tab: TabHandle) -> Option<u32> {
         self.shell.store().host().take_pending_scroll(tab)
     }
 
     pub fn tick(&mut self) {
+        self.request_page_states();
+        self.apply_manual_memory_saver();
         report(self.shell.tick(now_ms()));
         self.save_session();
         self.request_sync();
+    }
+
+    /// 診断用: プロファイル直下に `discard-now` ファイルがあれば、非表示のタブを今すぐ破棄する
+    /// (メモリ圧迫時と同じ動作)。ファイルは処理後に消す。メモリ削減効果の実測に使う。
+    fn apply_manual_memory_saver(&mut self) {
+        let trigger = crate::profile::profile_dir().join("discard-now");
+        if trigger.exists() && std::fs::remove_file(&trigger).is_ok() {
+            report(
+                self.shell
+                    .memory_pressure(ffi_traits::MemoryPressure::Critical),
+            );
+        }
     }
 
     pub fn save_session(&self) {
@@ -211,7 +250,7 @@ impl Ctx {
         let active_tab = active.and_then(|a| state.tab(a));
         let url = active_tab.map(|t| t.url.clone()).unwrap_or_default();
         let title = active_tab.map(|t| t.title.clone()).unwrap_or_default();
-        let bookmarked = !url.is_empty() && self.shell.db().is_bookmarked(&url).unwrap_or(false);
+        let bookmarked = !url.is_empty() && self.shell.is_bookmarked(&url).unwrap_or(false);
         self.ui.set_tabs(&labels);
         self.ui.set_address(&url);
         self.ui.set_bookmarked(bookmarked);

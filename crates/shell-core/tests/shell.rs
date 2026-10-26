@@ -311,3 +311,88 @@ fn set_audible_on_unknown_tab_is_a_noop() {
     let mut s = shell();
     s.set_audible(ffi_traits::TabHandle(99), true, 1).unwrap();
 }
+
+#[test]
+fn secrets_never_reach_history_bookmarks_or_session() {
+    let mut s = shell();
+    let raw = "https://bob:pw@a.example/cb?code=SECRET1&q=rust#access_token=SECRET2";
+    s.open_tab(raw, 1).unwrap();
+    let tab = s.store().state().active.unwrap();
+    s.on_load_end(tab, raw, "cb", 2).unwrap();
+    assert!(s.toggle_bookmark(3).unwrap());
+    assert!(
+        s.is_bookmarked(raw).unwrap(),
+        "lookup uses the scrubbed form"
+    );
+    s.save_session(4).unwrap();
+
+    let hits = s.db().search_history("cb", 10).unwrap();
+    let session = s.db().load_session().unwrap().unwrap();
+    for text in hits
+        .iter()
+        .map(|h| h.url.as_str())
+        .chain([session.as_str()])
+    {
+        assert!(!text.contains("SECRET"), "{text}");
+        assert!(!text.contains("bob") && !text.contains("pw@"), "{text}");
+    }
+    assert!(session.contains("https://a.example/cb?q=rust"));
+}
+
+#[test]
+fn page_state_is_saved_and_protects_editing_tabs() {
+    use shell_core::PageState;
+    const MIN: u64 = 60_000;
+    let mut s = shell();
+    s.open_tab("https://form.example/", 0).unwrap();
+    let form = s.store().state().active.unwrap();
+    s.open_tab("https://other.example/", 1).unwrap();
+    s.update_page_state(
+        form,
+        PageState {
+            scroll_y: 420,
+            editing: true,
+            form_state: Some("[[0,\"draft\"]]".into()),
+        },
+        2,
+    )
+    .unwrap();
+    let t = s.store().state().tab(form).unwrap();
+    assert_eq!((t.scroll_y, t.form_editing), (420, true));
+    assert_eq!(t.form_state.as_deref(), Some("[[0,\"draft\"]]"));
+
+    s.tick(60 * MIN).unwrap();
+    assert!(!s
+        .store()
+        .host()
+        .calls
+        .iter()
+        .any(|c| matches!(c, HostCall::Discard(t) if *t == form)));
+
+    // セッションにはスクロール位置とフォームが入り、復元で渡される。
+    s.save_session(61 * MIN).unwrap();
+    let json = s.db().load_session().unwrap().unwrap();
+    assert!(json.contains("420") && json.contains("draft"));
+}
+
+#[test]
+fn internal_page_survives_a_port_change_between_runs() {
+    let mut a = shell();
+    a.set_internal_prefix("http://127.0.0.1:4000/");
+    a.open_tab("http://127.0.0.1:4000/", 1).unwrap();
+    a.save_session(2).unwrap();
+    let json = a.db().load_session().unwrap().unwrap();
+    assert!(!json.contains("4000"), "port must not be persisted: {json}");
+
+    let mut b = shell();
+    b.set_internal_prefix("http://127.0.0.1:5555/");
+    b.db().save_session(&json, 3).unwrap();
+    assert!(b.restore_session(4).unwrap());
+    assert_eq!(b.store().state().tabs[0].url, "http://127.0.0.1:5555/");
+
+    // 内蔵ページが無い起動では、そのタブは復元されない。
+    let mut c = shell();
+    c.db().save_session(&json, 5).unwrap();
+    c.restore_session(6).unwrap();
+    assert!(c.store().state().tabs.is_empty());
+}

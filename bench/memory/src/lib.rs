@@ -39,12 +39,16 @@ impl Scenario {
         }
     }
 
-    /// 予算(MB)。
+    /// 予算(MB)。Private メモリのプロセス合計。
+    /// Chromium を伴う 3 つは **CEF 基準の仮置き**(docs/roadmap-cef.md)。release ビルドの参考値
+    /// (起動 219〜242 / ページ 1 枚 268〜289 / 20 タブ約 1,660)に約 15% の余裕を足して丸めた。
+    /// 設計書の Content API 前提の値(150 / 250 / 600)は将来の目標として同じ文書に残す。
+    /// 空きメモリが十分な状態で再計測したら置き換える。
     pub fn budget_mb(self) -> f64 {
         match self {
-            Scenario::Startup => 150.0,
-            Scenario::SinglePage => 250.0,
-            Scenario::Tabs20 => 600.0,
+            Scenario::Startup => 280.0,
+            Scenario::SinglePage => 330.0,
+            Scenario::Tabs20 => 1900.0,
             Scenario::RustSide => 20.0,
         }
     }
@@ -106,7 +110,7 @@ mod tests {
     #[test]
     fn budgets_match_design_doc() {
         let b: Vec<f64> = Scenario::ALL.iter().map(|s| s.budget_mb()).collect();
-        assert_eq!(b, [150.0, 250.0, 600.0, 20.0]);
+        assert_eq!(b, [280.0, 330.0, 1900.0, 20.0]);
     }
 
     #[test]

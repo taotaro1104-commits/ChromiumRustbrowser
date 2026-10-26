@@ -5,6 +5,7 @@ mod app;
 mod ctx;
 mod handlers;
 mod host;
+mod page_state;
 mod profile;
 mod start_page;
 mod tab_layout;

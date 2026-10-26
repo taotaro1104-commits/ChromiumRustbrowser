@@ -9,6 +9,29 @@ pub fn tab_layout(count: usize) -> (usize, usize) {
     }
 }
 
+/// 表示幅(半角=1、全角=2)。タブ名の切り詰めを、日本語でも欧文でも同じ見た目の幅にするため。
+fn display_width(c: char) -> usize {
+    let wide = matches!(c as u32,
+        0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF |
+        0xFE30..=0xFE6F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x1F300..=0x1FAFF);
+    if wide { 2 } else { 1 }
+}
+
+/// 表示幅 `max_width` に収まるよう末尾を `…` で切り詰める。
+pub fn clip_by_width(text: &str, max_width: usize) -> String {
+    let mut used = 0;
+    let mut out = String::new();
+    for c in text.chars() {
+        used += display_width(c);
+        if used > max_width {
+            out.push('…');
+            return out;
+        }
+        out.push(c);
+    }
+    out
+}
+
 const DOTS: [&str; 6] = ["🟦", "🟧", "🟩", "🟪", "🟥", "🟨"];
 
 /// サイトごとに決まった色の丸。同じホストは常に同じ色になり、タブを見分けやすくする。
@@ -39,6 +62,15 @@ mod tests {
         assert_eq!(tab_layout(1), (22, 4));
         assert_eq!(tab_layout(5), (14, 5));
         assert_eq!(tab_layout(20), (8, 6));
+    }
+
+    #[test]
+    fn clipping_counts_full_width_characters_as_two() {
+        assert_eq!(clip_by_width("abcdef", 4), "abcd…");
+        assert_eq!(clip_by_width("abcd", 4), "abcd");
+        assert_eq!(clip_by_width("はじまりのページ", 8), "はじまり…");
+        assert_eq!(clip_by_width("はじ", 4), "はじ");
+        assert_eq!(clip_by_width("", 4), "");
     }
 
     #[test]

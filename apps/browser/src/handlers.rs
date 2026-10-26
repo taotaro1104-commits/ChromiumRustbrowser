@@ -77,6 +77,28 @@ wrap_display_handler! {
             });
         }
 
+        /// 自分が注入した JS の報告(`__rb:<nonce>:...`)だけを受け取り、コンソールには出さない。
+        fn on_console_message(
+            &self,
+            _browser: Option<&mut Browser>,
+            _level: LogSeverity,
+            message: Option<&CefString>,
+            _source: Option<&CefString>,
+            _line: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            let message = message.map(CefString::to_string).unwrap_or_default();
+            match crate::page_state::parse_message(&message, crate::page_state::nonce()) {
+                Some(state) => {
+                    let tab = self.tab;
+                    post_ui(move || {
+                        ctx::with(|c| c.on_page_state(tab, state));
+                    });
+                    1
+                }
+                None => 0,
+            }
+        }
+
         fn on_address_change(
             &self,
             _browser: Option<&mut Browser>,
@@ -118,6 +140,16 @@ wrap_load_handler! {
             if let Some(y) = ctx::with(|c| c.take_pending_scroll(tab)).flatten() {
                 let js = CefString::from(format!("window.scrollTo(0,{y})").as_str());
                 frame.execute_java_script(Some(&js), Some(&CefString::from(url.as_str())), 0);
+            }
+            if let Some(js) = ctx::with(|c| c.take_pending_form(tab))
+                .flatten()
+                .and_then(|f| crate::page_state::restore_script(&f))
+            {
+                frame.execute_java_script(
+                    Some(&CefString::from(js.as_str())),
+                    Some(&CefString::from(url.as_str())),
+                    0,
+                );
             }
             post_ui(move || {
                 ctx::with(|c| c.on_load_end(tab, &url));
@@ -206,6 +238,17 @@ wrap_life_span_handler! {
     }
 
     impl LifeSpanHandler {
+        /// こちらから閉じているタブは、ビュー階層から外して閉じを完了させる(`true` = 自前で処理)。
+        /// それ以外(ユーザーがウィンドウを閉じた場合)は既定の動作に任せる。
+        fn do_close(&self, _browser: Option<&mut Browser>) -> ::std::os::raw::c_int {
+            let tab = self.tab;
+            if !crate::host::is_closing(tab) {
+                return 0;
+            }
+            post_ui(move || crate::host::tab_closed(tab));
+            1
+        }
+
         /// ポップアップは新しいウィンドウにせず、新規タブとして開く。
         fn on_before_popup(
             &self,

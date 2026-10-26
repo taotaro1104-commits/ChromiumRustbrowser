@@ -8,6 +8,7 @@ members = [
     "crates/policy",
     "crates/net-policy",
     "crates/shell-core",
+    "crates/chromium-ffi",
     "bench/memory",
 ]
 
