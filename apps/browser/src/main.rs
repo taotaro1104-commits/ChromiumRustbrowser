@@ -6,6 +6,7 @@ mod ctx;
 mod handlers;
 mod host;
 mod profile;
+mod tab_layout;
 mod ui;
 
 use cef::*;

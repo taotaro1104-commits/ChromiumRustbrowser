@@ -9,6 +9,22 @@ use ffi_traits::{HostError, TabHandle, WebContentsHost};
 
 use crate::handlers::TabClient;
 
+wrap_browser_view_delegate! {
+    struct TabViewDelegate {
+        _unused: u8,
+    }
+
+    impl ViewDelegate {}
+
+    impl BrowserViewDelegate {
+        /// Chrome スタイルのウィンドウは Chrome スタイルの BrowserView を 1 つしか持てないため、
+        /// タブは Alloy スタイルで作る。
+        fn browser_runtime_style(&self) -> RuntimeStyle {
+            RuntimeStyle::ALLOY
+        }
+    }
+}
+
 pub struct CefHost {
     content: Panel,
     views: HashMap<TabHandle, BrowserView>,
@@ -29,13 +45,14 @@ impl CefHost {
         let mut client = TabClient::new(tab);
         let settings = BrowserSettings::default();
         let url = CefString::from(url);
+        let mut delegate = TabViewDelegate::new(0);
         let view = browser_view_create(
             Some(&mut client),
             Some(&url),
             Some(&settings),
             None,
             None,
-            None,
+            Some(&mut delegate),
         )
         .ok_or_else(|| HostError::Failed("browser_view_create returned none".into()))?;
         let mut as_view = View::from(&view);
@@ -47,10 +64,9 @@ impl CefHost {
     fn despawn(&mut self, tab: TabHandle) {
         if let Some(view) = self.views.remove(&tab) {
             let mut as_view = View::from(&view);
+            // Views 上のブラウザは close_browser を呼ぶとウィンドウごと閉じるため、
+            // ビューを外して参照を手放すことで破棄する。
             self.content.remove_child_view(Some(&mut as_view));
-            if let Some(host) = view.browser().and_then(|b| b.host()) {
-                host.close_browser(1);
-            }
         }
     }
 

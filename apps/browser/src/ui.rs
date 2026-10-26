@@ -6,8 +6,7 @@ use cef::*;
 use ffi_traits::TabHandle;
 
 use crate::ctx;
-
-const MAX_LABEL_CHARS: usize = 22;
+use crate::tab_layout::{rows, tab_layout};
 
 #[derive(Debug, Clone, Copy)]
 pub enum UiAction {
@@ -103,9 +102,9 @@ fn box_layout(horizontal: bool) -> BoxLayoutSettings {
     }
 }
 
-fn ellipsize(text: &str) -> String {
+fn ellipsize(text: &str, max_chars: usize) -> String {
     let mut chars = text.chars();
-    let head: String = chars.by_ref().take(MAX_LABEL_CHARS).collect();
+    let head: String = chars.by_ref().take(max_chars).collect();
     if chars.next().is_some() {
         format!("{head}…")
     } else {
@@ -141,7 +140,7 @@ impl Ui {
         add_child(&toolbar, &bookmark);
         add_child(&toolbar, &button("＋", UiAction::NewTab));
 
-        tab_strip.set_to_box_layout(Some(&box_layout(true)));
+        tab_strip.set_to_box_layout(Some(&box_layout(false)));
 
         let ui = Self {
             toolbar,
@@ -167,16 +166,20 @@ impl Ui {
         *self.window.borrow_mut() = Some(window.clone());
     }
 
+    /// タブが多いときはラベルを縮め、行を分けて全タブに手が届くようにする。
     pub fn set_tabs(&self, tabs: &[TabLabel]) {
         self.tab_strip.remove_all_child_views();
-        for t in tabs {
-            let mark = if t.active { "● " } else { "" };
-            let label = format!("{mark}{}", ellipsize(&t.text));
-            add_child(
-                &self.tab_strip,
-                &button(&label, UiAction::ActivateTab(t.tab)),
-            );
-            add_child(&self.tab_strip, &button("×", UiAction::CloseTab(t.tab)));
+        let (max_chars, per_row) = tab_layout(tabs.len());
+        for row_tabs in rows(tabs, per_row) {
+            let row = panel_create(None).expect("tab row panel");
+            row.set_to_box_layout(Some(&box_layout(true)));
+            for t in row_tabs {
+                let mark = if t.active { "● " } else { "" };
+                let label = format!("{mark}{}", ellipsize(&t.text, max_chars));
+                add_child(&row, &button(&label, UiAction::ActivateTab(t.tab)));
+                add_child(&row, &button("×", UiAction::CloseTab(t.tab)));
+            }
+            add_child(&self.tab_strip, &row);
         }
         self.tab_strip.invalidate_layout();
     }
