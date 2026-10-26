@@ -244,3 +244,36 @@ fn title_and_address_events_update_state_without_touching_history() {
         "no host call for page-driven events"
     );
 }
+
+#[test]
+fn internal_and_file_urls_are_reported_not_swallowed() {
+    let mut s = shell();
+    for text in ["file:///c:/secret.txt", "about:flags"] {
+        assert!(
+            matches!(s.submit(text, 1), Err(ShellError::UnsupportedUrl(_))),
+            "{text}"
+        );
+    }
+    assert!(s.store().state().tabs.is_empty());
+}
+
+#[test]
+fn restore_skips_policy_blocked_hosts() {
+    let mut a = shell();
+    a.open_tab("https://ok.example/", 1).unwrap();
+    a.open_tab("https://bad.example/", 2).unwrap();
+    a.save_session(3).unwrap();
+    let json = a.db().load_session().unwrap().unwrap();
+
+    let mut b = shell_with(r#"{"blocked_hosts":["bad.example"]}"#);
+    b.db().save_session(&json, 4).unwrap();
+    assert!(b.restore_session(5).unwrap());
+    let urls: Vec<_> = b
+        .store()
+        .state()
+        .tabs
+        .iter()
+        .map(|t| t.url.clone())
+        .collect();
+    assert_eq!(urls, vec!["https://ok.example/".to_string()]);
+}

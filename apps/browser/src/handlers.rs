@@ -52,6 +52,10 @@ wrap_client! {
         fn load_handler(&self) -> Option<LoadHandler> {
             Some(TabLoadHandler::new(self.tab))
         }
+
+        fn request_handler(&self) -> Option<RequestHandler> {
+            Some(TabRequestHandler::new(self.tab))
+        }
     }
 }
 
@@ -118,6 +122,44 @@ wrap_load_handler! {
     }
 }
 
+/// ページ起点のメインフレーム遷移にも、アドレスバーと同じスキーム・ポリシー検査をかける。
+fn navigation_allowed(url: &str) -> bool {
+    // 再入で Ctx を借りられないときも、スキームの検査だけは必ず行う。
+    ctx::with(|c| c.shell.allows_navigation(url))
+        .unwrap_or_else(|| browser_core::is_allowed_url(url))
+}
+
+wrap_request_handler! {
+    struct TabRequestHandler {
+        tab: TabHandle,
+    }
+
+    impl RequestHandler {
+        fn on_before_browse(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _user_gesture: ::std::os::raw::c_int,
+            _is_redirect: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            let (Some(frame), Some(request)) = (frame, request) else {
+                return 0;
+            };
+            if frame.is_main() == 0 {
+                return 0;
+            }
+            let url = CefString::from(&request.url()).to_string();
+            if navigation_allowed(&url) {
+                0
+            } else {
+                eprintln!("browser: blocked navigation (tab {:?})", self.tab);
+                1
+            }
+        }
+    }
+}
+
 wrap_life_span_handler! {
     struct TabLifeSpanHandler {
         tab: TabHandle,
@@ -133,7 +175,7 @@ wrap_life_span_handler! {
             target_url: Option<&CefString>,
             _target_frame_name: Option<&CefString>,
             _target_disposition: WindowOpenDisposition,
-            _user_gesture: ::std::os::raw::c_int,
+            user_gesture: ::std::os::raw::c_int,
             _popup_features: Option<&PopupFeatures>,
             _window_info: Option<&mut WindowInfo>,
             _client: Option<&mut Option<Client>>,
@@ -142,7 +184,8 @@ wrap_life_span_handler! {
             _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
         ) -> ::std::os::raw::c_int {
             let url = target_url.map(CefString::to_string).unwrap_or_default();
-            if !url.is_empty() {
+            // ユーザー操作を伴わないポップアップ(`window.open` の自動連打)は開かない。
+            if user_gesture != 0 && !url.is_empty() {
                 post_ui(move || {
                     ctx::with(|c| c.open_url_in_new_tab(&url));
                 });

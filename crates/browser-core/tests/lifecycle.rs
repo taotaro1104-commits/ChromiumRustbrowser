@@ -530,3 +530,53 @@ fn restore_tab_rejects_dangerous_url_and_caps_form_state() {
     .unwrap();
     assert_eq!(s.state().tabs[0].form_state, None);
 }
+
+#[test]
+fn only_http_https_and_about_blank_are_allowed() {
+    for ok in ["https://a.example/", "HTTP://a.example", "about:blank"] {
+        assert!(is_allowed_url(ok), "{ok}");
+    }
+    for ng in [
+        "about:flags",
+        "about:version",
+        "chrome://version",
+        "file:///c:/x",
+        "data:text/html,x",
+        "javascript:alert(1)",
+        "blob:https://a.example/x",
+    ] {
+        assert!(!is_allowed_url(ng), "{ng}");
+    }
+    let long = format!("https://a.example/{}", "x".repeat(MAX_URL_BYTES));
+    assert!(!is_allowed_url(&long));
+}
+
+#[test]
+fn tab_count_is_capped() {
+    let mut s = Store::new(MockHost::new());
+    for i in 0..MAX_TABS + 20 {
+        s.dispatch(Action::OpenTab {
+            url: format!("https://a.example/{i}"),
+            now_ms: i as u64,
+        })
+        .unwrap();
+    }
+    assert_eq!(s.state().tabs.len(), MAX_TABS);
+}
+
+#[test]
+fn page_titles_are_clipped() {
+    let mut s = Store::new(MockHost::new());
+    let t = open(&mut s, "https://a.example", 0);
+    s.dispatch(Action::UpdateMeta {
+        tab: t,
+        title: Some("あ".repeat(MAX_TITLE_CHARS * 3)),
+        scroll_y: None,
+        form_state: None,
+    })
+    .unwrap();
+    assert_eq!(
+        s.state().tab(t).unwrap().title.chars().count(),
+        MAX_TITLE_CHARS
+    );
+}

@@ -62,6 +62,8 @@ impl CefHost {
     }
 
     fn despawn(&mut self, tab: TabHandle) {
+        // 古いスクロール位置が、次に実体化したページへ適用されないようにする。
+        self.pending_scroll.borrow_mut().remove(&tab);
         if let Some(view) = self.views.remove(&tab) {
             let mut as_view = View::from(&view);
             // Views 上のブラウザは close_browser を呼ぶとウィンドウごと閉じるため、

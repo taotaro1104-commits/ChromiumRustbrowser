@@ -11,12 +11,26 @@ pub const DISCARD_AFTER_MS: u64 = 30 * 60 * 1000;
 /// フォーム状態として保持する上限(バイト)。
 pub const MAX_FORM_STATE_BYTES: usize = 64 * 1024;
 
-/// タブに渡してよい URL スキーム。`javascript:` / `data:` / `file:` 等は拒否する。
-fn is_allowed_url(url: &str) -> bool {
-    let lower = url.trim_start().to_ascii_lowercase();
-    ["http://", "https://", "about:"]
-        .iter()
-        .any(|p| lower.starts_with(p))
+/// 同時に開けるタブ数の上限(ページ起点の `window.open` 連打によるメモリ枯渇を防ぐ)。
+pub const MAX_TABS: usize = 200;
+/// タイトルとして保持する最大文字数。
+pub const MAX_TITLE_CHARS: usize = 1024;
+/// 保持する URL の最大バイト数。
+pub const MAX_URL_BYTES: usize = 8192;
+
+/// タブに渡してよい URL。`http(s)` と `about:blank` のみで、`javascript:` / `data:` / `file:` /
+/// `about:flags` 等の内部ページは拒否する。長すぎる URL も拒否する。
+pub fn is_allowed_url(url: &str) -> bool {
+    if url.len() > MAX_URL_BYTES {
+        return false;
+    }
+    let lower = url.trim().to_ascii_lowercase();
+    lower == "about:blank" || lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+/// ページ由来のタイトルを上限文字数に切り詰める。
+pub fn clip_title(title: &str) -> String {
+    title.chars().take(MAX_TITLE_CHARS).collect()
 }
 
 /// 純粋関数。入力の State は変更せず、新しい State と副作用を返す。
@@ -51,7 +65,7 @@ pub(crate) fn apply(next: &mut State, action: &Action) -> Vec<Effect> {
         } => {
             if let Some(t) = next.tab_mut(*tab) {
                 if let Some(v) = title {
-                    t.title.clone_from(v);
+                    t.title = clip_title(v);
                 }
                 if let Some(v) = scroll_y {
                     t.scroll_y = *v;
@@ -84,7 +98,7 @@ pub(crate) fn apply(next: &mut State, action: &Action) -> Vec<Effect> {
 }
 
 fn open_tab(s: &mut State, url: &str, now: u64, fx: &mut Vec<Effect>) {
-    if !is_allowed_url(url) {
+    if !is_allowed_url(url) || s.tabs.len() >= MAX_TABS {
         return;
     }
     hide_active(s, now);
@@ -129,7 +143,7 @@ fn restore_tab(
     form_state: Option<&str>,
     now: u64,
 ) {
-    if !is_allowed_url(url) {
+    if !is_allowed_url(url) || s.tabs.len() >= MAX_TABS {
         return;
     }
     let handle = TabHandle(s.next_id);
@@ -137,7 +151,7 @@ fn restore_tab(
     s.tabs.push(Tab {
         handle,
         url: url.to_owned(),
-        title: title.to_owned(),
+        title: clip_title(title),
         scroll_y,
         form_state: form_state
             .filter(|f| f.len() <= MAX_FORM_STATE_BYTES)

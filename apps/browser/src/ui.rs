@@ -262,6 +262,12 @@ impl Ui {
         }
     }
 
+    /// 入力中の文字列を捨てて、指定の URL を表示し直す。
+    pub fn reset_address(&self, url: &str) {
+        self.address.set_text(Some(&CefString::from(url)));
+        *self.last_address.borrow_mut() = url.to_owned();
+    }
+
     pub fn set_address(&self, url: &str) {
         let mut last = self.last_address.borrow_mut();
         if *last != url {

@@ -1,4 +1,4 @@
-use browser_core::{Action, Store};
+use browser_core::{clip_title, is_allowed_url, Action, Store, MAX_URL_BYTES};
 use ffi_traits::{HostError, MemoryPressure, TabHandle, WebContentsHost};
 use net_policy::{decide, Decision, NoopBlocker, Request};
 use omnibox::{classify, suggest, Input, Suggestion};
@@ -18,6 +18,8 @@ pub enum ShellError {
     Storage(#[from] StorageError),
     #[error("blocked by policy")]
     Blocked,
+    #[error("unsupported url: {0}")]
+    UnsupportedUrl(String),
     #[error("session error: {0}")]
     Session(String),
 }
@@ -60,7 +62,7 @@ impl<H: WebContentsHost> Shell<H> {
             Input::Search(q) => search_url(&q),
             Input::Url(u) => u,
         };
-        let url = self.apply_policy(target)?;
+        let url = self.checked(target)?;
         match self.store.state().active {
             Some(tab) => self.store.dispatch(Action::Navigate {
                 tab,
@@ -77,7 +79,7 @@ impl<H: WebContentsHost> Shell<H> {
     /// 新規タブ(URL はポリシー検査後に開く)。
     pub fn open_tab(&mut self, url: &str, now_ms: u64) -> Result<(), ShellError> {
         let target = Url::parse(url).map_err(|e| ShellError::Session(e.to_string()))?;
-        let url = self.apply_policy(target)?;
+        let url = self.checked(target)?;
         self.store.dispatch(Action::OpenTab {
             url: url.into(),
             now_ms,
@@ -125,8 +127,8 @@ impl<H: WebContentsHost> Shell<H> {
             .internal_prefix
             .as_deref()
             .is_some_and(|p| url.starts_with(p));
-        if is_web_url(url) && !internal {
-            self.db.record_visit(url, title, now_ms)?;
+        if is_web_url(url) && !internal && url.len() <= MAX_URL_BYTES {
+            self.db.record_visit(url, &clip_title(title), now_ms)?;
         }
         Ok(())
     }
@@ -192,7 +194,7 @@ impl<H: WebContentsHost> Shell<H> {
                 form_state: t.form_state,
             })
             .collect();
-        let json = SessionFile::new(active, tabs).to_json()?;
+        let json = SessionFile::new(active, tabs).into_fitted_json()?;
         self.db.save_session(&json, now_ms)?;
         Ok(())
     }
@@ -207,8 +209,13 @@ impl<H: WebContentsHost> Shell<H> {
         let mut handles: Vec<Option<TabHandle>> = Vec::new();
         for t in file.tabs.into_iter().take(MAX_RESTORED_TABS) {
             let before = self.store.state().tabs.len();
+            // ポリシーでブロックされる URL は復元しない。HTTPS アップグレードは反映する。
+            let Some(url) = self.restorable_url(&t.url) else {
+                handles.push(None);
+                continue;
+            };
             self.store.dispatch(Action::RestoreTab {
-                url: t.url,
+                url,
                 title: t.title,
                 scroll_y: t.scroll_y,
                 form_state: t.form_state,
@@ -226,6 +233,29 @@ impl<H: WebContentsHost> Shell<H> {
             self.store.dispatch(Action::Activate { tab, now_ms })?;
         }
         Ok(true)
+    }
+
+    fn restorable_url(&self, raw: &str) -> Option<String> {
+        match Url::parse(raw) {
+            Ok(u) => self.apply_policy(u).ok().map(Into::into),
+            // 解析できない URL は core 側が拒否する。
+            Err(_) => Some(raw.to_owned()),
+        }
+    }
+
+    /// 開けない URL(内部ページ・`file:` 等)を明示的なエラーにしてから、ポリシーを適用する。
+    fn checked(&self, url: Url) -> Result<Url, ShellError> {
+        if !is_allowed_url(url.as_str()) {
+            return Err(ShellError::UnsupportedUrl(url.scheme().to_owned()));
+        }
+        self.apply_policy(url)
+    }
+
+    /// ページ起点のナビゲーションを許すか(スキームとポリシー)。
+    pub fn allows_navigation(&self, url: &str) -> bool {
+        is_allowed_url(url)
+            && Url::parse(url)
+                .is_ok_and(|u| !matches!(self.apply_policy(u), Err(ShellError::Blocked)))
     }
 
     /// ポリシー適用: ブロックなら拒否、HTTPS アップグレードがあれば反映。

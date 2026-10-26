@@ -1,7 +1,7 @@
 //! UI スレッド専用のアプリ状態。CEF のコールバックから `with` 経由でのみ触る。
 //! 再入(コールバック中の再コールバック)で借用が衝突した場合は、その呼び出しを黙って捨てる。
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use cef::ImplBrowser;
 use ffi_traits::TabHandle;
@@ -17,6 +17,8 @@ pub const FALLBACK_HOME_URL: &str = "https://duckduckgo.com/";
 
 thread_local! {
     static CTX: RefCell<Option<Ctx>> = const { RefCell::new(None) };
+    /// UI 更新の予約済みフラグ。`Ctx` の外に置くのは、借用に失敗した回でも必ず戻せるようにするため。
+    static SYNC_PENDING: Cell<bool> = const { Cell::new(false) };
 }
 
 pub fn install(ctx: Ctx) {
@@ -29,7 +31,10 @@ pub fn clear() {
 
 pub fn with<R>(f: impl FnOnce(&mut Ctx) -> R) -> Option<R> {
     CTX.with(|c| {
-        let mut guard = c.try_borrow_mut().ok()?;
+        let Ok(mut guard) = c.try_borrow_mut() else {
+            eprintln!("browser: reentrant ctx call dropped");
+            return None;
+        };
         guard.as_mut().map(f)
     })
 }
@@ -37,8 +42,9 @@ pub fn with<R>(f: impl FnOnce(&mut Ctx) -> R) -> Option<R> {
 pub struct Ctx {
     pub shell: Shell<CefHost>,
     pub ui: Ui,
-    sync_pending: bool,
     home_url: String,
+    /// 前回のセッション復元に失敗した。古いセッションを上書きしないよう、自動保存を止める。
+    save_disabled: bool,
 }
 
 fn report<T, E: std::fmt::Display>(r: Result<T, E>) {
@@ -52,8 +58,8 @@ impl Ctx {
         Self {
             shell,
             ui,
-            sync_pending: false,
             home_url,
+            save_disabled: false,
         }
     }
 
@@ -62,7 +68,8 @@ impl Ctx {
         let restored = match self.shell.restore_session(now_ms()) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("browser: session restore failed: {e}");
+                eprintln!("browser: session restore failed: {e}; autosave disabled for this run");
+                self.save_disabled = true;
                 false
             }
         };
@@ -104,7 +111,11 @@ impl Ctx {
     }
 
     pub fn submit_address(&mut self, text: &str) {
-        report(self.shell.submit(text, now_ms()));
+        if let Err(e) = self.shell.submit(text, now_ms()) {
+            eprintln!("browser: {e}");
+            // 開けなかった入力を残さず、表示中のページの URL に戻す。
+            self.ui.reset_address(&self.active_url());
+        }
         self.request_sync();
     }
 
@@ -135,31 +146,41 @@ impl Ctx {
         self.request_sync();
     }
 
+    fn active_url(&self) -> String {
+        let state = self.shell.store().state();
+        state
+            .active
+            .and_then(|a| state.tab(a))
+            .map(|t| t.url.clone())
+            .unwrap_or_default()
+    }
+
     pub fn take_pending_scroll(&self, tab: TabHandle) -> Option<u32> {
         self.shell.store().host().take_pending_scroll(tab)
     }
 
     pub fn tick(&mut self) {
         report(self.shell.tick(now_ms()));
-        report(self.shell.save_session(now_ms()));
+        self.save_session();
         self.request_sync();
     }
 
     pub fn save_session(&self) {
+        if self.save_disabled {
+            return;
+        }
         report(self.shell.save_session(now_ms()));
     }
 
     /// UI の更新は後で一度だけ行う(押下中のボタンを作り直さないため)。
     fn request_sync(&mut self) {
-        if self.sync_pending {
+        if SYNC_PENDING.with(|p| p.replace(true)) {
             return;
         }
-        self.sync_pending = true;
         post_ui(|| {
-            crate::ctx::with(|c| {
-                c.sync_pending = false;
-                c.sync();
-            });
+            // 借用に失敗して `with` が走らなくても、予約フラグは必ず戻す。
+            SYNC_PENDING.with(|p| p.set(false));
+            crate::ctx::with(Ctx::sync);
         });
     }
 

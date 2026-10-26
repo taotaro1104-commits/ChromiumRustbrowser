@@ -11,6 +11,7 @@ publish = false
 [dependencies]
 cef = "156.2.0"
 shell-core = { path = "../../crates/shell-core" }
+browser-core = { path = "../../crates/browser-core" }
 storage = { path = "../../crates/storage" }
 policy = { path = "../../crates/policy" }
 ffi-traits = { path = "../../crates/ffi-traits" }

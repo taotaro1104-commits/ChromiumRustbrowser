@@ -34,22 +34,30 @@ wrap_browser_process_handler! {
                 eprintln!("browser: cannot open profile db ({e}); using in-memory history");
                 Db::open_in_memory().expect("in-memory db")
             });
-            let policy = std::fs::read_to_string(dir.join("policy.json"))
-                .ok()
-                .and_then(|json| {
-                    policy::Policy::from_json(&json)
-                        .map_err(|e| eprintln!("browser: invalid policy.json: {e}"))
-                        .ok()
-                })
-                .unwrap_or_default();
+            // policy.json が無ければ既定。有るのに読めない/壊れている場合は、ブロックや HTTPS 強制が
+            // 黙って無効になるのを避けるため、起動せずに終了する(fail-closed)。
+            let policy = match load_policy(&dir) {
+                Ok(p) => p,
+                Err(msg) => {
+                    eprintln!("browser: {msg}");
+                    quit_message_loop();
+                    return;
+                }
+            };
 
             let (ui, content) = Ui::build();
             let mut shell = Shell::new(CefHost::new(content), db, policy);
-            let home_url = start_page::spawn().unwrap_or_else(|e| {
-                eprintln!("browser: start page unavailable ({e}); using fallback home");
-                ctx::FALLBACK_HOME_URL.to_owned()
-            });
-            shell.set_internal_prefix(home_url.clone());
+            let home_url = match start_page::spawn() {
+                Ok(url) => {
+                    shell.set_internal_prefix(url.clone());
+                    url
+                }
+                Err(e) => {
+                    // 代替ホームは通常の検索サイトなので、履歴から除外しない。
+                    eprintln!("browser: start page unavailable ({e}); using fallback home");
+                    ctx::FALLBACK_HOME_URL.to_owned()
+                }
+            };
             ctx::install(Ctx::new(shell, ui, home_url));
 
             let initial_url = command_line_get_global()
@@ -97,6 +105,18 @@ wrap_window_delegate! {
             ctx::clear();
             quit_message_loop();
         }
+    }
+}
+
+/// `policy.json` を読む。ファイルが無ければ既定、有って不正ならエラー。
+fn load_policy(dir: &std::path::Path) -> Result<policy::Policy, String> {
+    let path = dir.join("policy.json");
+    match std::fs::read_to_string(&path) {
+        Ok(json) => {
+            policy::Policy::from_json(&json).map_err(|e| format!("invalid {}: {e}", path.display()))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(policy::Policy::default()),
+        Err(e) => Err(format!("cannot read {}: {e}", path.display())),
     }
 }
 
