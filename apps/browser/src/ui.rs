@@ -6,7 +6,22 @@ use cef::*;
 use ffi_traits::TabHandle;
 
 use crate::ctx;
-use crate::tab_layout::{rows, tab_layout};
+use crate::tab_layout::{rows, tab_dot, tab_layout};
+
+/// 配色(ARGB)。ツールバーは淡いラベンダー、アクティブなタブは青、＋は桃色、★は黄色。
+mod palette {
+    pub const BAR: u32 = 0xFFE9_E4FF;
+    pub const STRIP: u32 = 0xFFDD_E2FF;
+    pub const INK: u32 = 0xFF23_233B;
+    pub const WHITE: u32 = 0xFFFF_FFFF;
+    pub const LAGOON: u32 = 0xFF3D_6CF5;
+    pub const BUBBLEGUM: u32 = 0xFFFF_6FB1;
+    pub const SUNSHINE: u32 = 0xFFFF_C933;
+    pub const CLOSE_BG: u32 = 0xFFFF_E3E3;
+    pub const CLOSE_FG: u32 = 0xFFD6_3B3B;
+}
+
+const FONT_UI: &str = "Yu Gothic UI, Bold 12px";
 
 #[derive(Debug, Clone, Copy)]
 pub enum UiAction {
@@ -22,6 +37,7 @@ pub enum UiAction {
 pub struct TabLabel {
     pub tab: TabHandle,
     pub text: String,
+    pub url: String,
     pub active: bool,
 }
 
@@ -75,6 +91,8 @@ pub struct Ui {
     content: Panel,
     address: Textfield,
     bookmark: LabelButton,
+    /// ウィンドウに載せた後でないと色が反映されないため、`attach` で塗る。
+    toolbar_buttons: Vec<(LabelButton, (u32, u32))>,
     window: RefCell<Option<Window>>,
     last_address: RefCell<String>,
 }
@@ -83,6 +101,34 @@ fn button(text: &str, action: UiAction) -> LabelButton {
     let mut delegate = ActionButtonDelegate::new(action);
     label_button_create(Some(&mut delegate), Some(&CefString::from(text)))
         .expect("label_button_create")
+}
+
+/// 親に追加してから、背景色・文字色・ツールチップを付ける。
+/// 親に追加する前に背景色を設定しても反映されないため、この順序を守る。
+fn add_styled<P: ImplPanel>(
+    parent: &P,
+    text: &str,
+    action: UiAction,
+    colors: (u32, u32),
+    tip: &str,
+) -> LabelButton {
+    let b = button(text, action);
+    add_child(parent, &b);
+    b.set_font_list(Some(&CefString::from(FONT_UI)));
+    b.set_tooltip_text(Some(&CefString::from(tip)));
+    paint(&b, colors);
+    b
+}
+
+fn paint(b: &LabelButton, (bg, fg): (u32, u32)) {
+    b.set_background_color(bg);
+    for state in [
+        ButtonState::NORMAL,
+        ButtonState::HOVERED,
+        ButtonState::PRESSED,
+    ] {
+        b.set_text_color(state, fg);
+    }
 }
 
 fn box_layout(horizontal: bool) -> BoxLayoutSettings {
@@ -122,23 +168,34 @@ impl Ui {
 
         let mut address_delegate = AddressDelegate::new(0);
         let address = textfield_create(Some(&mut address_delegate)).expect("address textfield");
-        address.set_placeholder_text(Some(&CefString::from("URL または検索語")));
-        let bookmark = button("☆", UiAction::Bookmark);
+        address.set_placeholder_text(Some(&CefString::from("どこへ行く? URL か検索ワードを入力")));
+        address.set_font_list(Some(&CefString::from("Yu Gothic UI, 13px")));
 
+        let mut toolbar_buttons = Vec::new();
         let layout = toolbar
             .set_to_box_layout(Some(&box_layout(true)))
             .expect("toolbar layout");
-        for (text, action) in [
-            ("◀", UiAction::Back),
-            ("▶", UiAction::Forward),
-            ("⟳", UiAction::Reload),
+        for (text, action, tip) in [
+            ("◀", UiAction::Back, "戻る"),
+            ("▶", UiAction::Forward, "進む"),
+            ("⟳", UiAction::Reload, "再読み込み"),
         ] {
-            add_child(&toolbar, &button(text, action));
+            let colors = (palette::WHITE, palette::INK);
+            toolbar_buttons.push((add_styled(&toolbar, text, action, colors, tip), colors));
         }
         add_child(&toolbar, &address);
+        address.set_background_color(palette::WHITE);
         layout.set_flex_for_view(Some(&mut View::from(&address)), 1);
-        add_child(&toolbar, &bookmark);
-        add_child(&toolbar, &button("＋", UiAction::NewTab));
+        let bookmark = add_styled(
+            &toolbar,
+            "☆",
+            UiAction::Bookmark,
+            (palette::WHITE, palette::INK),
+            "ブックマーク",
+        );
+        let plus_colors = (palette::BUBBLEGUM, palette::WHITE);
+        let plus = add_styled(&toolbar, "＋", UiAction::NewTab, plus_colors, "新しいタブ");
+        toolbar_buttons.push((plus, plus_colors));
 
         tab_strip.set_to_box_layout(Some(&box_layout(false)));
 
@@ -148,6 +205,7 @@ impl Ui {
             content: content.clone(),
             address,
             bookmark,
+            toolbar_buttons,
             window: RefCell::new(None),
             last_address: RefCell::new(String::new()),
         };
@@ -173,15 +231,35 @@ impl Ui {
         for row_tabs in rows(tabs, per_row) {
             let row = panel_create(None).expect("tab row panel");
             row.set_to_box_layout(Some(&box_layout(true)));
-            for t in row_tabs {
-                let mark = if t.active { "● " } else { "" };
-                let label = format!("{mark}{}", ellipsize(&t.text, max_chars));
-                add_child(&row, &button(&label, UiAction::ActivateTab(t.tab)));
-                add_child(&row, &button("×", UiAction::CloseTab(t.tab)));
-            }
             add_child(&self.tab_strip, &row);
+            row.set_background_color(palette::STRIP);
+            for t in row_tabs {
+                let label = format!("{} {}", tab_dot(&t.url), ellipsize(&t.text, max_chars));
+                let colors = if t.active {
+                    (palette::LAGOON, palette::WHITE)
+                } else {
+                    (palette::WHITE, palette::INK)
+                };
+                add_styled(&row, &label, UiAction::ActivateTab(t.tab), colors, &t.text);
+                add_styled(
+                    &row,
+                    "×",
+                    UiAction::CloseTab(t.tab),
+                    (palette::CLOSE_BG, palette::CLOSE_FG),
+                    "タブを閉じる",
+                );
+            }
         }
         self.tab_strip.invalidate_layout();
+    }
+
+    /// ウィンドウを表示した後に呼ぶ。表示前だとツールバーの色が反映されない。
+    pub fn paint_toolbar(&self) {
+        self.toolbar.set_background_color(palette::BAR);
+        self.tab_strip.set_background_color(palette::STRIP);
+        for (b, colors) in &self.toolbar_buttons {
+            paint(b, *colors);
+        }
     }
 
     pub fn set_address(&self, url: &str) {
@@ -195,6 +273,19 @@ impl Ui {
     pub fn set_bookmarked(&self, on: bool) {
         self.bookmark
             .set_text(Some(&CefString::from(if on { "★" } else { "☆" })));
+        let (bg, fg) = if on {
+            (palette::SUNSHINE, palette::INK)
+        } else {
+            (palette::WHITE, palette::INK)
+        };
+        self.bookmark.set_background_color(bg);
+        for state in [
+            ButtonState::NORMAL,
+            ButtonState::HOVERED,
+            ButtonState::PRESSED,
+        ] {
+            self.bookmark.set_text_color(state, fg);
+        }
     }
 
     pub fn set_window_title(&self, title: &str) {

@@ -93,6 +93,24 @@ fn non_http_loads_are_not_recorded_in_history() {
 }
 
 #[test]
+fn internal_pages_are_not_recorded_in_history() {
+    let mut s = shell();
+    s.set_internal_prefix("http://127.0.0.1:4000/");
+    s.submit("http://127.0.0.1:4000/", 1).unwrap();
+    let tab = s.store().state().active.unwrap();
+    s.on_load_end(tab, "http://127.0.0.1:4000/", "start", 2)
+        .unwrap();
+    assert_eq!(s.db().history_count().unwrap(), 0);
+    s.on_load_end(tab, "http://127.0.0.1:40001/", "other", 3)
+        .unwrap();
+    assert_eq!(
+        s.db().history_count().unwrap(),
+        1,
+        "prefix must match whole origin"
+    );
+}
+
+#[test]
 fn bookmark_toggle_round_trip() {
     let mut s = shell();
     assert!(

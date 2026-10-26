@@ -6,6 +6,7 @@ mod ctx;
 mod handlers;
 mod host;
 mod profile;
+mod start_page;
 mod tab_layout;
 mod ui;
 

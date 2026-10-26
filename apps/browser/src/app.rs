@@ -5,9 +5,10 @@ use shell_core::Shell;
 use storage::Db;
 
 use crate::ctx::{self, Ctx};
-use crate::handlers::post_ui_delayed;
+use crate::handlers::{post_ui, post_ui_delayed};
 use crate::host::CefHost;
 use crate::profile::profile_dir;
+use crate::start_page;
 use crate::ui::Ui;
 
 /// 定期 Tick の間隔。凍結(5 分)・破棄(30 分)の判定とセッション保存に使う。
@@ -43,8 +44,13 @@ wrap_browser_process_handler! {
                 .unwrap_or_default();
 
             let (ui, content) = Ui::build();
-            let shell = Shell::new(CefHost::new(content), db, policy);
-            ctx::install(Ctx::new(shell, ui));
+            let mut shell = Shell::new(CefHost::new(content), db, policy);
+            let home_url = start_page::spawn().unwrap_or_else(|e| {
+                eprintln!("browser: start page unavailable ({e}); using fallback home");
+                ctx::FALLBACK_HOME_URL.to_owned()
+            });
+            shell.set_internal_prefix(home_url.clone());
+            ctx::install(Ctx::new(shell, ui, home_url));
 
             let initial_url = command_line_get_global()
                 .map(|c| CefString::from(&c.switch_value(Some(&CefString::from("url")))).to_string())
@@ -76,6 +82,9 @@ wrap_window_delegate! {
                 c.start(Some(self.initial_url.as_str()));
             });
             window.show();
+            post_ui(|| {
+                ctx::with(|c| c.ui.paint_toolbar());
+            });
             schedule_tick();
         }
 

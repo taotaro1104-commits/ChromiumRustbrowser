@@ -9,6 +9,22 @@ pub fn tab_layout(count: usize) -> (usize, usize) {
     }
 }
 
+const DOTS: [&str; 6] = ["🟦", "🟧", "🟩", "🟪", "🟥", "🟨"];
+
+/// サイトごとに決まった色の丸。同じホストは常に同じ色になり、タブを見分けやすくする。
+pub fn tab_dot(url: &str) -> &'static str {
+    let host = url
+        .split_once("://")
+        .map_or(url, |(_, rest)| rest)
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
+    let sum = host.bytes().fold(0usize, |a, b| {
+        a.wrapping_mul(31).wrapping_add(usize::from(b))
+    });
+    DOTS[sum % DOTS.len()]
+}
+
 /// タブを行ごとに分ける。各行は `per_row` 個まで。
 pub fn rows<T>(items: &[T], per_row: usize) -> impl Iterator<Item = &[T]> {
     items.chunks(per_row.max(1))
@@ -23,6 +39,15 @@ mod tests {
         assert_eq!(tab_layout(1), (22, 4));
         assert_eq!(tab_layout(5), (14, 5));
         assert_eq!(tab_layout(20), (8, 6));
+    }
+
+    #[test]
+    fn dot_is_stable_per_host() {
+        assert_eq!(
+            tab_dot("https://a.example/x"),
+            tab_dot("http://a.example/y?z")
+        );
+        assert!(DOTS.contains(&tab_dot("")));
     }
 
     #[test]

@@ -12,7 +12,8 @@ use crate::host::CefHost;
 use crate::profile::now_ms;
 use crate::ui::{TabLabel, Ui, UiAction};
 
-const HOME_URL: &str = "https://duckduckgo.com/";
+/// スタートページを起動できなかったときのホーム。
+pub const FALLBACK_HOME_URL: &str = "https://duckduckgo.com/";
 
 thread_local! {
     static CTX: RefCell<Option<Ctx>> = const { RefCell::new(None) };
@@ -37,6 +38,7 @@ pub struct Ctx {
     pub shell: Shell<CefHost>,
     pub ui: Ui,
     sync_pending: bool,
+    home_url: String,
 }
 
 fn report<T, E: std::fmt::Display>(r: Result<T, E>) {
@@ -46,11 +48,12 @@ fn report<T, E: std::fmt::Display>(r: Result<T, E>) {
 }
 
 impl Ctx {
-    pub fn new(shell: Shell<CefHost>, ui: Ui) -> Self {
+    pub fn new(shell: Shell<CefHost>, ui: Ui, home_url: String) -> Self {
         Self {
             shell,
             ui,
             sync_pending: false,
+            home_url,
         }
     }
 
@@ -66,7 +69,7 @@ impl Ctx {
         if let Some(url) = initial_url.filter(|u| !u.is_empty()) {
             report(self.shell.open_tab(url, now_ms()));
         } else if !restored || self.shell.store().state().tabs.is_empty() {
-            report(self.shell.open_tab(HOME_URL, now_ms()));
+            report(self.shell.open_tab(&self.home_url, now_ms()));
         }
         self.sync();
     }
@@ -79,7 +82,7 @@ impl Ctx {
             UiAction::Forward => self.with_browser(active, |b| b.go_forward()),
             UiAction::Reload => self.with_browser(active, |b| b.reload()),
             UiAction::Bookmark => report(self.shell.toggle_bookmark(now)),
-            UiAction::NewTab => report(self.shell.open_tab(HOME_URL, now)),
+            UiAction::NewTab => report(self.shell.open_tab(&self.home_url, now)),
             UiAction::ActivateTab(tab) => {
                 report(self.shell.activate(tab, now));
                 self.shell.store().host().focus(tab);
@@ -87,7 +90,7 @@ impl Ctx {
             UiAction::CloseTab(tab) => {
                 report(self.shell.close_tab(tab, now));
                 if self.shell.store().state().tabs.is_empty() {
-                    report(self.shell.open_tab(HOME_URL, now));
+                    report(self.shell.open_tab(&self.home_url, now));
                 }
             }
         }
@@ -175,6 +178,7 @@ impl Ctx {
                 } else {
                     t.title.clone()
                 },
+                url: t.url.clone(),
                 active: Some(t.handle) == active,
             })
             .collect();

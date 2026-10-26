@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>はじまりのページ</title>
+<style>
+  :root {
+    --bar: #e9e4ff;
+    --ink: #23233b;
+    --lagoon: #3d6cf5;
+    --bubblegum: #ff6fb1;
+    --sunshine: #ffc933;
+    --mint: #7fe0b5;
+    --white: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bar: #1d1b34; --ink: #f1efff; --white: #2a2750; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: var(--bar);
+    color: var(--ink);
+    font-family: "Yu Gothic UI", "Hiragino Maru Gothic ProN", "Segoe UI", sans-serif;
+  }
+  main { width: min(680px, 100% - 32px); padding: 16px 0; }
+  h1 {
+    margin: 0 0 14px;
+    font-size: clamp(1.6rem, 5vw, 2.4rem);
+    font-weight: 800;
+    letter-spacing: .02em;
+  }
+  h1 span { display: inline-block; transform: rotate(-4deg); background: var(--sunshine); color: #23233b; padding: 0 .35em; border-radius: .4em; }
+  form {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    background: var(--white);
+    border-radius: 999px;
+    box-shadow: 0 6px 0 rgba(61, 108, 245, .25);
+  }
+  input[type=search] {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 1.15rem;
+    padding: 0 16px;
+    outline: none;
+  }
+  form:focus-within { outline: 3px solid var(--lagoon); outline-offset: 2px; }
+  button {
+    border: 0;
+    border-radius: 999px;
+    background: var(--bubblegum);
+    color: #fff;
+    font: inherit;
+    font-weight: 800;
+    font-size: 1.05rem;
+    padding: 8px 22px;
+    cursor: pointer;
+  }
+  button:active { transform: translateY(2px); }
+  ul { list-style: none; margin: 18px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px; }
+  a.tile {
+    display: block;
+    padding: 12px 14px;
+    border-radius: 22px;
+    color: #fff;
+    text-decoration: none;
+    font-weight: 800;
+    font-size: 1rem;
+    box-shadow: 0 5px 0 rgba(35, 35, 59, .25);
+  }
+  a.tile small { display: block; margin-top: 4px; font-weight: 600; font-size: .8rem; opacity: .9; }
+  a.tile:hover, a.tile:focus-visible { transform: translateY(-3px) rotate(-1.5deg); }
+  a.tile:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+  .t1 { background: var(--lagoon); }
+  .t2 { background: #23233b; }
+  .t3 { background: #e0443e; }
+  .t4 { background: #e8772e; }
+  @media (max-height: 560px) { a.tile small { display: none; } }
+  @media (prefers-reduced-motion: no-preference) {
+    a.tile { transition: transform .12s ease-out; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    a.tile:hover, a.tile:focus-visible, button:active { transform: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>どこへ <span>行く?</span></h1>
+  <form action="https://duckduckgo.com/" method="get" role="search">
+    <input type="search" name="q" placeholder="調べたいことを入力" aria-label="検索ワード" autofocus>
+    <button type="submit">さがす</button>
+  </form>
+  <ul>
+    <li><a class="tile t1" href="https://ja.wikipedia.org/">Wikipedia<small>なんでも調べる</small></a></li>
+    <li><a class="tile t2" href="https://github.com/">GitHub<small>コードを見る</small></a></li>
+    <li><a class="tile t3" href="https://www.youtube.com/">YouTube<small>動画を見る</small></a></li>
+    <li><a class="tile t4" href="https://www.rust-lang.org/ja">Rust<small>このブラウザの言語</small></a></li>
+  </ul>
+</main>
+</body>
+</html>

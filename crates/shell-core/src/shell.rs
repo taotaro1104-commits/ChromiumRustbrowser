@@ -26,6 +26,8 @@ pub struct Shell<H: WebContentsHost> {
     store: Store<H>,
     db: Db,
     policy: Policy,
+    /// 内蔵ページ(スタートページ等)の URL 接頭辞。履歴には残さない。
+    internal_prefix: Option<String>,
 }
 
 impl<H: WebContentsHost> Shell<H> {
@@ -34,7 +36,13 @@ impl<H: WebContentsHost> Shell<H> {
             store: Store::new(host),
             db,
             policy,
+            internal_prefix: None,
         }
+    }
+
+    /// この接頭辞で始まる URL は履歴に記録しない。末尾は `/` を含めること(別オリジンとの誤一致を防ぐ)。
+    pub fn set_internal_prefix(&mut self, prefix: impl Into<String>) {
+        self.internal_prefix = Some(prefix.into());
     }
 
     pub fn store(&self) -> &Store<H> {
@@ -113,7 +121,11 @@ impl<H: WebContentsHost> Shell<H> {
             scroll_y: None,
             form_state: None,
         })?;
-        if is_web_url(url) {
+        let internal = self
+            .internal_prefix
+            .as_deref()
+            .is_some_and(|p| url.starts_with(p));
+        if is_web_url(url) && !internal {
             self.db.record_visit(url, title, now_ms)?;
         }
         Ok(())
