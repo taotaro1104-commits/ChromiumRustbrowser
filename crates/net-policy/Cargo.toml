@@ -1,0 +1,16 @@
+[package]
+name = "net-policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+url.workspace = true
+policy = { path = "../policy" }
+
+[dev-dependencies]
+
+
+[lints]
+workspace = true

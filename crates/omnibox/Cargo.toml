@@ -1,0 +1,17 @@
+[package]
+name = "omnibox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+url.workspace = true
+storage = { path = "../storage" }
+
+[dev-dependencies]
+
+
+[lints]
+workspace = true

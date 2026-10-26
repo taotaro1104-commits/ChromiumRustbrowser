@@ -1,0 +1,17 @@
+[package]
+name = "browser-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+ffi-traits = { path = "../ffi-traits" }
+
+[dev-dependencies]
+ffi-traits = { path = "../ffi-traits", features = ["mock"] }
+proptest.workspace = true
+
+[lints]
+workspace = true

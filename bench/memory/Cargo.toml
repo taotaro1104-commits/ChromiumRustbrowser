@@ -1,0 +1,15 @@
+[package]
+name = "memory-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
+browser-core = { path = "../../crates/browser-core" }
+storage = { path = "../../crates/storage" }
+ffi-traits = { path = "../../crates/ffi-traits", features = ["mock"] }
+
+[lints]
+workspace = true
