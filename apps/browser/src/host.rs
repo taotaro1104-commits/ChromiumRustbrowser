@@ -134,6 +134,13 @@ impl CefHost {
         }
     }
 
+    /// タブのメインフレームで JS を実行する(自動入力など)。実体が無ければ何もしない。
+    pub fn run_script(&self, tab: TabHandle, script: &str) {
+        if let Some(frame) = self.browser(tab).and_then(|b| b.main_frame()) {
+            frame.execute_java_script(Some(&CefString::from(script)), None, 0);
+        }
+    }
+
     pub fn take_pending_scroll(&self, tab: TabHandle) -> Option<u32> {
         self.pending_scroll.borrow_mut().remove(&tab)
     }

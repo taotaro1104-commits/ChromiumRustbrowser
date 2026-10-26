@@ -91,6 +91,14 @@ wrap_display_handler! {
             _line: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let message = message.map(CefString::to_string).unwrap_or_default();
+            // ログイン関連(パスワードを含みうる)は、コンソールへ出さずに受け取る。
+            if let Some(login) = crate::login_capture::parse_message(&message, crate::page_state::nonce()) {
+                let tab = self.tab;
+                post_ui(move || {
+                    ctx::with(|c| c.on_login_message(tab, login));
+                });
+                return 1;
+            }
             match crate::page_state::parse_message(&message, crate::page_state::nonce()) {
                 Some(state) => {
                     let tab = self.tab;
@@ -154,6 +162,11 @@ wrap_load_handler! {
                     Some(&CefString::from(url.as_str())),
                     0,
                 );
+            }
+            // http(s) のページにだけ、ログイン送信の捕捉用スクリプトを入れる。
+            if url.starts_with("https://") || url.starts_with("http://") {
+                let js = CefString::from(crate::login_capture::hook_script().as_str());
+                frame.execute_java_script(Some(&js), None, 0);
             }
             post_ui(move || {
                 ctx::with(|c| c.on_load_end(tab, &url));

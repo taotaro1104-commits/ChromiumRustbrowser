@@ -16,6 +16,7 @@ storage = { path = "../storage" }
 omnibox = { path = "../omnibox" }
 policy = { path = "../policy" }
 net-policy = { path = "../net-policy" }
+passwords = { path = "../passwords" }
 
 [dev-dependencies]
 ffi-traits = { path = "../ffi-traits", features = ["mock"] }

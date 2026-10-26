@@ -7,9 +7,11 @@ mod bookmarks;
 mod db;
 mod error;
 mod history;
+mod logins;
 mod session;
 
 pub use bookmarks::Bookmark;
 pub use db::Db;
 pub use error::StorageError;
 pub use history::HistoryEntry;
+pub use logins::LoginEntry;

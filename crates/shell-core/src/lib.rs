@@ -5,6 +5,7 @@ mod redact;
 mod session;
 mod shell;
 
+pub use passwords::{PromptKind, SaveOutcome, SecretError, SecretStore, Zeroizing};
 pub use redact::scrub_url;
 pub use session::MAX_SESSION_BYTES;
 pub use shell::{PageState, Shell, ShellError};

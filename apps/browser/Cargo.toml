@@ -21,6 +21,9 @@ storage = { path = "../../crates/storage" }
 policy = { path = "../../crates/policy" }
 net-policy = { path = "../../crates/net-policy" }
 url = "2"
+zeroize = "1"
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ffi-traits = { path = "../../crates/ffi-traits" }

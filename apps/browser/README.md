@@ -29,4 +29,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File apps/browser/run.ps1 [-Relea
   (約 180MB)。署名は signtool(Windows SDK)で SHA-256。証明書はこのリポジトリに置かない。`-SmokeTest` は zip を別の場所へ展開して
   起動し、ウィンドウが出るまでを確認する。インストーラ(MSI / Inno Setup など)は未作成。
 - **メモリの自動計測**: `bench/memory/run-cef-bench.ps1`(docs/roadmap-cef.md)。
+- **パスワード管理**: ログイン送信時に確認バーで保存を尋ね、保存済みのサイトでは確認の後に自動入力する。パスワードは Windows の資格情報
+  マネージャーに置き、DB には索引だけを置く。🔑 ボタンで一覧・削除(パスワードは表示しない)。詳細は docs/roadmap-cef.md。
 

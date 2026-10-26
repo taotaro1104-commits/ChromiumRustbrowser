@@ -55,6 +55,8 @@ wrap_browser_process_handler! {
             net_filter::install(policy.clone(), blocker.clone());
             let mut shell = Shell::new(CefHost::new(content), db, policy);
             shell.set_content_blocker(blocker);
+            // パスワードは OS の資格情報ストアへ。DB には索引(サイトとユーザー名)だけを置く。
+            shell.set_secret_store(Box::new(crate::os_store::OsSecretStore));
             let home_url = match start_page::spawn() {
                 Ok(url) => {
                     shell.set_internal_prefix(url.clone());

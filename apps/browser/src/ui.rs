@@ -6,10 +6,11 @@ use cef::*;
 use ffi_traits::TabHandle;
 
 use crate::ctx;
+use crate::infobar::InfoBar;
 use crate::tab_layout::{clip_by_width, rows, tab_dot, tab_layout};
 
 /// 配色(ARGB)。ツールバーは淡いラベンダー、アクティブなタブは青、＋は桃色、★は黄色。
-mod palette {
+pub(crate) mod palette {
     pub const BAR: u32 = 0xFFE9_E4FF;
     pub const STRIP: u32 = 0xFFDD_E2FF;
     pub const INK: u32 = 0xFF23_233B;
@@ -19,6 +20,7 @@ mod palette {
     pub const SUNSHINE: u32 = 0xFFFF_C933;
     pub const CLOSE_BG: u32 = 0xFFFF_E3E3;
     pub const CLOSE_FG: u32 = 0xFFD6_3B3B;
+    pub const INFO_BG: u32 = 0xFFFF_F3C4;
 }
 
 const FONT_UI: &str = "Yu Gothic UI, Bold 12px";
@@ -32,6 +34,12 @@ pub enum UiAction {
     NewTab,
     ActivateTab(TabHandle),
     CloseTab(TabHandle),
+    /// 何もしない(確認バーのメッセージ表示用)。
+    None,
+    /// 確認バーのボタン(左から 0, 1, 2)。
+    Prompt(usize),
+    /// 保存済みパスワードの管理画面を開く。
+    OpenPasswords,
 }
 
 pub struct TabLabel {
@@ -91,6 +99,7 @@ pub struct Ui {
     content: Panel,
     address: Textfield,
     bookmark: LabelButton,
+    infobar: InfoBar,
     /// ウィンドウに載せた後でないと色が反映されないため、`attach` で塗る。
     toolbar_buttons: Vec<(LabelButton, (u32, u32))>,
     window: RefCell<Option<Window>>,
@@ -105,7 +114,7 @@ fn button(text: &str, action: UiAction) -> LabelButton {
 
 /// 親に追加してから、背景色・文字色・ツールチップを付ける。
 /// 親に追加する前に背景色を設定しても反映されないため、この順序を守る。
-fn add_styled<P: ImplPanel>(
+pub(crate) fn add_styled<P: ImplPanel>(
     parent: &P,
     text: &str,
     action: UiAction,
@@ -131,7 +140,7 @@ fn paint(b: &LabelButton, (bg, fg): (u32, u32)) {
     }
 }
 
-fn box_layout(horizontal: bool) -> BoxLayoutSettings {
+pub(crate) fn box_layout(horizontal: bool) -> BoxLayoutSettings {
     BoxLayoutSettings {
         size: std::mem::size_of::<BoxLayoutSettings>(),
         horizontal: i32::from(horizontal),
@@ -176,6 +185,15 @@ impl Ui {
         add_child(&toolbar, &address);
         address.set_background_color(palette::WHITE);
         layout.set_flex_for_view(Some(&mut View::from(&address)), 1);
+        let keys_colors = (palette::WHITE, palette::INK);
+        let keys = add_styled(
+            &toolbar,
+            "🔑",
+            UiAction::OpenPasswords,
+            keys_colors,
+            "保存済みのパスワード",
+        );
+        toolbar_buttons.push((keys, keys_colors));
         let bookmark = add_styled(
             &toolbar,
             "☆",
@@ -195,6 +213,7 @@ impl Ui {
             content: content.clone(),
             address,
             bookmark,
+            infobar: InfoBar::new(),
             toolbar_buttons,
             window: RefCell::new(None),
             last_address: RefCell::new(String::new()),
@@ -208,6 +227,7 @@ impl Ui {
             .set_to_box_layout(Some(&box_layout(false)))
             .expect("window layout");
         add_child(window, &self.toolbar);
+        add_child(window, self.infobar.panel());
         add_child(window, &self.tab_strip);
         add_child(window, &self.content);
         layout.set_flex_for_view(Some(&mut View::from(&self.content)), 1);
@@ -256,6 +276,15 @@ impl Ui {
     pub fn reset_address(&self, url: &str) {
         self.address.set_text(Some(&CefString::from(url)));
         *self.last_address.borrow_mut() = url.to_owned();
+    }
+
+    /// 確認バーを出す。
+    pub fn show_prompt(&self, message: &str, buttons: &[(String, UiAction)]) {
+        self.infobar.show(message, buttons);
+    }
+
+    pub fn hide_prompt(&self) {
+        self.infobar.hide();
     }
 
     pub fn set_address(&self, url: &str) {

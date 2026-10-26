@@ -5,7 +5,8 @@ use rusqlite::{Connection, TransactionBehavior};
 use crate::error::StorageError;
 
 /// スキーマ移行。インデックス = 移行後の `user_version - 1`。追記のみ、既存は編集しない。
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE history (
     id            INTEGER PRIMARY KEY,
     url           TEXT NOT NULL UNIQUE,
@@ -36,7 +37,22 @@ CREATE TABLE session (
     data     TEXT NOT NULL,
     saved_ms INTEGER NOT NULL
 );
-"#];
+"#,
+    // 2: 保存済みログインの索引(パスワード本体は OS の資格情報ストア)と「保存しない」サイト。
+    r#"
+CREATE TABLE logins (
+    origin       TEXT NOT NULL,
+    username     TEXT NOT NULL,
+    created_ms   INTEGER NOT NULL,
+    last_used_ms INTEGER NOT NULL,
+    PRIMARY KEY (origin, username)
+);
+CREATE TABLE login_exceptions (
+    origin     TEXT PRIMARY KEY,
+    created_ms INTEGER NOT NULL
+);
+"#,
+];
 
 /// 接続ごとのページキャッシュ(KiB)。数百 KB に抑える。
 const CACHE_SIZE_KIB: i64 = 512;

@@ -9,6 +9,7 @@ members = [
     "crates/net-policy",
     "crates/shell-core",
     "crates/chromium-ffi",
+    "crates/passwords",
     "bench/memory",
 ]
 

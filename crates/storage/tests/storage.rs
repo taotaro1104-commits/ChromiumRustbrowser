@@ -16,7 +16,7 @@ fn pragmas_follow_memory_budget() {
         db.pragma_i64("mmap_size").unwrap(),
         None | Some(0)
     ));
-    assert_eq!(db.schema_version().unwrap(), 1);
+    assert_eq!(db.schema_version().unwrap(), 2);
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn newer_schema_is_rejected() {
     match Db::open(&path) {
         Err(StorageError::SchemaTooNew {
             found: 99,
-            supported: 1,
+            supported: 2,
         }) => {}
         other => panic!("unexpected: {:?}", other.err()),
     }
@@ -225,6 +225,6 @@ fn concurrent_opens_migrate_once() {
         })
         .collect();
     for h in handles {
-        assert_eq!(h.join().unwrap().unwrap(), 1);
+        assert_eq!(h.join().unwrap().unwrap(), 2);
     }
 }

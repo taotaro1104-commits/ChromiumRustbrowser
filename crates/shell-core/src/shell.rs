@@ -4,8 +4,11 @@ use std::sync::Arc;
 
 use net_policy::{decide, ContentBlocker, Decision, NoopBlocker, Request};
 use omnibox::{classify, suggest, Input, Suggestion};
+use passwords::{
+    MemorySecretStore, PromptKind, SaveOutcome, SecretStore, Vault, VaultError, Zeroizing,
+};
 use policy::Policy;
-use storage::{Db, StorageError};
+use storage::{Db, LoginEntry, StorageError};
 use url::Url;
 
 use crate::redact::scrub_url;
@@ -25,6 +28,8 @@ pub enum ShellError {
     UnsupportedUrl(String),
     #[error("session error: {0}")]
     Session(String),
+    #[error("password manager: {0}")]
+    Vault(#[from] VaultError),
 }
 
 /// セッション内で内蔵スタートページを指す印。
@@ -48,6 +53,8 @@ pub struct Shell<H: WebContentsHost> {
     internal_prefix: Option<String>,
     /// 広告・トラッカーのブロッカー。IO スレッドの要求検査と共有するため `Arc`(読み取り専用)。
     blocker: Arc<dyn ContentBlocker + Send + Sync>,
+    /// 保存済みログイン。パスワード本体は `SecretStore`(実機では OS の資格情報ストア)に置く。
+    vault: Vault<Box<dyn SecretStore>>,
 }
 
 impl<H: WebContentsHost> Shell<H> {
@@ -58,7 +65,63 @@ impl<H: WebContentsHost> Shell<H> {
             policy,
             internal_prefix: None,
             blocker: Arc::new(NoopBlocker),
+            vault: Vault::new(Box::new(MemorySecretStore::new())),
         }
+    }
+
+    /// パスワードの保存先を差し替える(既定はメモリ上のみ。実機では OS の資格情報ストアを渡す)。
+    pub fn set_secret_store(&mut self, store: Box<dyn SecretStore>) {
+        self.vault = Vault::new(store);
+    }
+
+    /// ログイン送信(`url` のページで入力されたユーザー名・パスワード)に対して、何を尋ねるか。
+    pub fn login_prompt(
+        &self,
+        url: &str,
+        username: &str,
+        password: &str,
+    ) -> Result<PromptKind, ShellError> {
+        Ok(self.vault.prompt_for(&self.db, url, username, password)?)
+    }
+
+    /// 利用者が承認したログインを保存する。
+    pub fn save_login(
+        &self,
+        url: &str,
+        username: &str,
+        password: &str,
+        now_ms: u64,
+    ) -> Result<SaveOutcome, ShellError> {
+        Ok(self.vault.save(&self.db, url, username, password, now_ms)?)
+    }
+
+    /// そのサイトの保存済みログイン(ユーザー名のみ)。
+    pub fn saved_logins(&self, url: &str) -> Result<Vec<LoginEntry>, ShellError> {
+        Ok(self.vault.logins_for(&self.db, url)?)
+    }
+
+    /// 自動入力用のパスワード。利用者が入力を承認した後だけ呼ぶ。
+    pub fn login_secret(
+        &self,
+        url: &str,
+        username: &str,
+        now_ms: u64,
+    ) -> Result<Option<Zeroizing<String>>, ShellError> {
+        Ok(self.vault.secret_for(&self.db, url, username, now_ms)?)
+    }
+
+    /// 管理画面用: 全サイトのログイン(パスワードは含まない)。
+    pub fn all_logins(&self, limit: usize) -> Result<Vec<LoginEntry>, ShellError> {
+        Ok(self.db.list_logins(limit, 0)?)
+    }
+
+    pub fn delete_login(&self, origin: &str, username: &str) -> Result<bool, ShellError> {
+        Ok(self.vault.delete(&self.db, origin, username)?)
+    }
+
+    /// 「このサイトでは保存しない」。
+    pub fn never_save_logins(&self, url: &str, now_ms: u64) -> Result<(), ShellError> {
+        Ok(self.vault.never_save(&self.db, url, now_ms)?)
     }
 
     /// コンテンツブロッカーを差し替える(フィルタリストの読込後に一度だけ呼ぶ)。

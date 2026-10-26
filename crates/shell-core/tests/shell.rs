@@ -417,3 +417,41 @@ fn content_blocker_applies_to_address_bar_and_new_tabs() {
     assert!(!s.allows_navigation("https://ads.example/"));
     assert!(s.allows_navigation("https://fine.example/"));
 }
+
+#[test]
+fn login_flow_prompts_saves_and_fills_only_for_the_same_origin() {
+    use shell_core::{PromptKind, SaveOutcome};
+    let s = shell();
+    let page = "https://a.example/login";
+    assert_eq!(
+        s.login_prompt(page, "alice", "pw1").unwrap(),
+        PromptKind::Save
+    );
+    assert_eq!(
+        s.save_login(page, "alice", "pw1", 1).unwrap(),
+        SaveOutcome::Saved
+    );
+    assert_eq!(s.saved_logins(page).unwrap().len(), 1);
+    assert_eq!(&*s.login_secret(page, "alice", 2).unwrap().unwrap(), "pw1");
+    // 別オリジンへは渡さない(フィッシング対策)。
+    assert!(s
+        .saved_logins("https://a.example.evil.test/")
+        .unwrap()
+        .is_empty());
+    assert!(s
+        .login_secret("https://evil.test/", "alice", 3)
+        .unwrap()
+        .is_none());
+    // 変更・削除・保存しない。
+    assert_eq!(
+        s.login_prompt(page, "alice", "pw2").unwrap(),
+        PromptKind::Update
+    );
+    s.never_save_logins("https://b.example/", 4).unwrap();
+    assert_eq!(
+        s.login_prompt("https://b.example/x", "bob", "pw").unwrap(),
+        PromptKind::None
+    );
+    assert!(s.delete_login("https://a.example", "alice").unwrap());
+    assert!(s.all_logins(10).unwrap().is_empty());
+}

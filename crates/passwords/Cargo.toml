@@ -1,0 +1,15 @@
+[package]
+name = "passwords"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+storage = { path = "../storage" }
+thiserror.workspace = true
+url.workspace = true
+zeroize = "1"
+
+[lints]
+workspace = true

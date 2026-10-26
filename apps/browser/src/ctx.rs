@@ -10,6 +10,7 @@ use shell_core::Shell;
 use crate::handlers::post_ui;
 use crate::host::CefHost;
 use crate::profile::now_ms;
+use crate::prompts::Prompt;
 use crate::ui::{TabLabel, Ui, UiAction};
 
 /// スタートページを起動できなかったときのホーム。
@@ -45,6 +46,8 @@ pub struct Ctx {
     home_url: String,
     /// 前回のセッション復元に失敗した。古いセッションを上書きしないよう、自動保存を止める。
     save_disabled: bool,
+    /// 確認バーに出している質問(パスワードの保存・自動入力)。
+    pub(crate) prompt: Option<Prompt>,
 }
 
 fn report<T, E: std::fmt::Display>(r: Result<T, E>) {
@@ -60,6 +63,7 @@ impl Ctx {
             ui,
             home_url,
             save_disabled: false,
+            prompt: None,
         }
     }
 
@@ -100,6 +104,12 @@ impl Ctx {
                 report(self.shell.activate(tab, now));
                 self.shell.store().host().focus(tab);
             }
+            UiAction::None => {}
+            // 押されたボタン自身を含むバーを作り直すため、ボタンの処理が終わってから行う。
+            UiAction::Prompt(i) => post_ui(move || {
+                crate::ctx::with(|c| c.answer_prompt(i));
+            }),
+            UiAction::OpenPasswords => post_ui(crate::passwords_window::open),
             UiAction::CloseTab(tab) => {
                 report(self.shell.close_tab(tab, now));
                 if self.shell.store().state().tabs.is_empty() {
@@ -199,6 +209,7 @@ impl Ctx {
 
     pub fn tick(&mut self) {
         self.request_page_states();
+        self.expire_prompt();
         self.apply_manual_memory_saver();
         report(self.shell.tick(now_ms()));
         self.save_session();
@@ -263,5 +274,6 @@ impl Ctx {
         self.ui.set_address(&url);
         self.ui.set_bookmarked(bookmarked);
         self.ui.set_window_title(&title);
+        self.refresh_prompt();
     }
 }
