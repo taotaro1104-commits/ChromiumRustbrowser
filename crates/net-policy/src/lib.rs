@@ -3,6 +3,8 @@
 
 mod cookies;
 mod decide;
+mod filter_list;
 
 pub use cookies::{cookie_decision, is_third_party, CookieDecision};
 pub use decide::{decide, BlockReason, ContentBlocker, Decision, NoopBlocker, Request};
+pub use filter_list::{ListBlocker, MAX_RULES};

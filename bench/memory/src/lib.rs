@@ -9,6 +9,9 @@ pub use workload::{measure_attached_mb, measure_rust_side_mb, sum_matching_mb};
 
 /// 前日比の増加がこの割合を超えたら回帰とみなす(5%)。
 pub const REGRESSION_RATIO: f64 = 1.05;
+/// CEF のシナリオは起動ごとのばらつきが大きい(同じビルドを 3 回測って、起動 ±7%、20 タブ +9%)ため、
+/// 前回比の許容を広げる。予算超過の判定は変えない。
+pub const CEF_REGRESSION_RATIO: f64 = 1.15;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scenario {
@@ -30,6 +33,14 @@ impl Scenario {
         Scenario::RustSide,
     ];
 
+    /// 前回比で回帰とみなす倍率。Rust 側は 5%、ブラウザ全体は起動ごとのばらつきを見込んで 15%。
+    pub fn regression_ratio(self) -> f64 {
+        match self {
+            Scenario::RustSide => REGRESSION_RATIO,
+            _ => CEF_REGRESSION_RATIO,
+        }
+    }
+
     /// `name()` の逆引き。
     pub fn from_name(name: &str) -> Option<Scenario> {
         Scenario::ALL.into_iter().find(|s| s.name() == name)
@@ -45,14 +56,14 @@ impl Scenario {
     }
 
     /// 予算(MB)。Private メモリのプロセス合計。
-    /// Chromium を伴う 3 つは **CEF 基準**(docs/roadmap-cef.md)。2026-10-26 の release ビルドの実測
-    /// (起動 220 / ページ 1 枚 266 / 20 タブ 1,592)に約 15% の余裕を足して丸めた。
+    /// Chromium を伴う 3 つは **CEF 基準**(docs/roadmap-cef.md)。`run-cef-bench.ps1` の実測
+    /// (起動 218〜234 / ページ 1 枚 138〜143 / 20 タブ 1,046〜1,143)の最大値に約 15% の余裕を足して丸めた。
     /// 設計書の Content API 前提の値(150 / 250 / 600)は将来の目標として同じ文書に残す。
     pub fn budget_mb(self) -> f64 {
         match self {
-            Scenario::Startup => 260.0,
-            Scenario::SinglePage => 310.0,
-            Scenario::Tabs20 => 1850.0,
+            Scenario::Startup => 270.0,
+            Scenario::SinglePage => 170.0,
+            Scenario::Tabs20 => 1350.0,
             Scenario::RustSide => 20.0,
         }
     }
@@ -99,10 +110,12 @@ pub fn evaluate(scenario: Scenario, samples: &[f64], previous_mb: Option<f64>) -
         return Some(Verdict::OverBudget { mb, budget_mb });
     }
     match previous_mb {
-        Some(prev) if prev > 0.0 && mb > prev * REGRESSION_RATIO => Some(Verdict::Regression {
-            mb,
-            previous_mb: prev,
-        }),
+        Some(prev) if prev > 0.0 && mb > prev * scenario.regression_ratio() => {
+            Some(Verdict::Regression {
+                mb,
+                previous_mb: prev,
+            })
+        }
         _ => Some(Verdict::Pass { mb }),
     }
 }
@@ -114,7 +127,7 @@ mod tests {
     #[test]
     fn budgets_match_design_doc() {
         let b: Vec<f64> = Scenario::ALL.iter().map(|s| s.budget_mb()).collect();
-        assert_eq!(b, [260.0, 310.0, 1850.0, 20.0]);
+        assert_eq!(b, [270.0, 170.0, 1350.0, 20.0]);
     }
 
     #[test]
@@ -172,17 +185,32 @@ mod tests {
 
     #[test]
     fn five_percent_growth_is_a_regression_but_equal_is_not() {
-        assert!(!evaluate(Scenario::Tabs20, &[105.0], Some(100.0))
+        assert!(!evaluate(Scenario::RustSide, &[10.5], Some(10.0))
             .unwrap()
             .is_failure());
-        let v = evaluate(Scenario::Tabs20, &[105.1], Some(100.0)).unwrap();
+        let v = evaluate(Scenario::RustSide, &[10.51], Some(10.0)).unwrap();
         assert_eq!(
             v,
             Verdict::Regression {
-                mb: 105.1,
-                previous_mb: 100.0
+                mb: 10.51,
+                previous_mb: 10.0
             }
         );
+    }
+
+    #[test]
+    fn browser_scenarios_tolerate_launch_to_launch_noise_up_to_15_percent() {
+        // 実測のばらつき(20 タブで +9%)は回帰としない。
+        assert!(!evaluate(Scenario::Tabs20, &[1143.0], Some(1046.0))
+            .unwrap()
+            .is_failure());
+        assert!(!evaluate(Scenario::Tabs20, &[114.0], Some(100.0))
+            .unwrap()
+            .is_failure());
+        assert!(matches!(
+            evaluate(Scenario::Tabs20, &[116.0], Some(100.0)).unwrap(),
+            Verdict::Regression { .. }
+        ));
     }
 
     #[test]

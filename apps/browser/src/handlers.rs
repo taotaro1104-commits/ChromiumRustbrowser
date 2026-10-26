@@ -57,6 +57,10 @@ wrap_client! {
             Some(TabAudioHandler::new(self.tab))
         }
 
+        fn download_handler(&self) -> Option<DownloadHandler> {
+            Some(TabDownloadHandler::new(0))
+        }
+
         fn request_handler(&self) -> Option<RequestHandler> {
             Some(TabRequestHandler::new(self.tab))
         }
@@ -194,6 +198,111 @@ wrap_audio_handler! {
     }
 }
 
+// ダウンロード: 安全なファイル名にして「ダウンロード」フォルダへ保存する。実行形式などは保存しない。
+wrap_download_handler! {
+    struct TabDownloadHandler {
+        _unused: u8,
+    }
+
+    impl DownloadHandler {
+        // 既定は「拒否」なので、許可を明示する。保存の可否は `on_before_download` が決める。
+        fn can_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            _url: Option<&CefString>,
+            _request_method: Option<&CefString>,
+        ) -> ::std::os::raw::c_int {
+            1
+        }
+
+        fn on_before_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            _download_item: Option<&mut DownloadItem>,
+            suggested_name: Option<&CefString>,
+            callback: Option<&mut BeforeDownloadCallback>,
+        ) -> ::std::os::raw::c_int {
+            let Some(callback) = callback else { return 0 };
+            let suggested = suggested_name.map(CefString::to_string).unwrap_or_default();
+            let name = crate::downloads::sanitize_file_name(&suggested);
+            let target = (!crate::downloads::is_blocked(&name))
+                .then(crate::downloads::downloads_dir)
+                .flatten()
+                .and_then(|dir| {
+                    std::fs::create_dir_all(&dir).ok()?;
+                    crate::downloads::unique_path(&dir, &name, |p| p.exists())
+                });
+            match target {
+                Some(path) => {
+                    callback.cont(Some(&CefString::from(path.to_string_lossy().as_ref())), 0);
+                }
+                None => {
+                    // 空のパスで続行すると既定の一時フォルダへ保存されてしまうため、続行せず、
+                    // 既定の処理(Alloy スタイルでは取り消し)に任せる。
+                    eprintln!("browser: download refused: {name}");
+                    return 0;
+                }
+            }
+            1
+        }
+
+        fn on_download_updated(
+            &self,
+            _browser: Option<&mut Browser>,
+            download_item: Option<&mut DownloadItem>,
+            callback: Option<&mut DownloadItemCallback>,
+        ) {
+            let Some(item) = download_item else { return };
+            // 念のため: 保存先の名前が拒否対象なら、始まっていても取り消す。
+            let path = CefString::from(&item.full_path()).to_string();
+            let file = std::path::Path::new(&path)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if !file.is_empty() && crate::downloads::is_blocked(&file) {
+                if let Some(cb) = callback {
+                    cb.cancel();
+                }
+                return;
+            }
+            if item.is_complete() != 0 {
+                post_ui(move || {
+                    ctx::with(|c| c.on_download_complete(&file));
+                });
+            }
+        }
+    }
+}
+
+// サブリソース(画像・スクリプト・iframe 等)の要求を、ポリシーとブロックリストで検査する。
+// IO スレッドで呼ばれるため `Ctx` には触れず、読み取り専用の `net_filter` だけを使う。
+wrap_resource_request_handler! {
+    struct TabResourceRequestHandler {
+        initiator: String,
+    }
+
+    impl ResourceRequestHandler {
+        fn on_before_resource_load(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _callback: Option<&mut Callback>,
+        ) -> ReturnValue {
+            let Some(request) = request else {
+                return ReturnValue::CONTINUE;
+            };
+            let url = CefString::from(&request.url()).to_string();
+            let initiator = (!self.initiator.is_empty()).then_some(self.initiator.as_str());
+            if crate::net_filter::should_block(&url, initiator) {
+                ReturnValue::CANCEL
+            } else {
+                ReturnValue::CONTINUE
+            }
+        }
+    }
+}
+
 /// ページ起点のメインフレーム遷移にも、アドレスバーと同じスキーム・ポリシー検査をかける。
 fn navigation_allowed(url: &str) -> bool {
     // 再入で Ctx を借りられないときも、スキームの検査だけは必ず行う。
@@ -207,6 +316,24 @@ wrap_request_handler! {
     }
 
     impl RequestHandler {
+        /// ナビゲーション以外のリソース要求だけを検査する(ナビゲーションは `on_before_browse` が受け持つ)。
+        fn resource_request_handler(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            is_navigation: ::std::os::raw::c_int,
+            _is_download: ::std::os::raw::c_int,
+            request_initiator: Option<&CefString>,
+            _disable_default_handling: Option<&mut ::std::os::raw::c_int>,
+        ) -> Option<ResourceRequestHandler> {
+            if is_navigation != 0 {
+                return None;
+            }
+            let initiator = request_initiator.map(CefString::to_string).unwrap_or_default();
+            Some(TabResourceRequestHandler::new(initiator))
+        }
+
         fn on_before_browse(
             &self,
             _browser: Option<&mut Browser>,

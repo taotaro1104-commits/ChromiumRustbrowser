@@ -1,6 +1,8 @@
 use browser_core::{clip_title, is_allowed_url, Action, Store, MAX_URL_BYTES};
 use ffi_traits::{HostError, MemoryPressure, TabHandle, WebContentsHost};
-use net_policy::{decide, Decision, NoopBlocker, Request};
+use std::sync::Arc;
+
+use net_policy::{decide, ContentBlocker, Decision, NoopBlocker, Request};
 use omnibox::{classify, suggest, Input, Suggestion};
 use policy::Policy;
 use storage::{Db, StorageError};
@@ -44,6 +46,8 @@ pub struct Shell<H: WebContentsHost> {
     policy: Policy,
     /// 内蔵ページ(スタートページ等)の URL 接頭辞。履歴には残さない。
     internal_prefix: Option<String>,
+    /// 広告・トラッカーのブロッカー。IO スレッドの要求検査と共有するため `Arc`(読み取り専用)。
+    blocker: Arc<dyn ContentBlocker + Send + Sync>,
 }
 
 impl<H: WebContentsHost> Shell<H> {
@@ -53,7 +57,13 @@ impl<H: WebContentsHost> Shell<H> {
             db,
             policy,
             internal_prefix: None,
+            blocker: Arc::new(NoopBlocker),
         }
+    }
+
+    /// コンテンツブロッカーを差し替える(フィルタリストの読込後に一度だけ呼ぶ)。
+    pub fn set_content_blocker(&mut self, blocker: Arc<dyn ContentBlocker + Send + Sync>) {
+        self.blocker = blocker;
     }
 
     /// この接頭辞で始まる URL は履歴に記録しない。末尾は `/` を含めること(別オリジンとの誤一致を防ぐ)。
@@ -344,7 +354,7 @@ impl<H: WebContentsHost> Shell<H> {
             url: &url,
             top_frame: None,
         };
-        match decide(&req, &self.policy, &NoopBlocker) {
+        match decide(&req, &self.policy, self.blocker.as_ref()) {
             Decision::Allow => Ok(url),
             Decision::UpgradeToHttps(u) => Ok(u),
             Decision::Block(_) => Err(ShellError::Blocked),

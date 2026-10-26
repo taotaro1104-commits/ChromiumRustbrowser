@@ -396,3 +396,24 @@ fn internal_page_survives_a_port_change_between_runs() {
     c.restore_session(6).unwrap();
     assert!(c.store().state().tabs.is_empty());
 }
+
+#[test]
+fn content_blocker_applies_to_address_bar_and_new_tabs() {
+    use std::sync::Arc;
+    let mut s = shell();
+    s.set_content_blocker(Arc::new(net_policy::ListBlocker::from_list(
+        "||ads.example^\n",
+    )));
+    assert!(matches!(
+        s.submit("https://ads.example/", 1),
+        Err(ShellError::Blocked)
+    ));
+    assert!(matches!(
+        s.open_tab("https://cdn.ads.example/x", 2),
+        Err(ShellError::Blocked)
+    ));
+    assert!(s.store().state().tabs.is_empty());
+    s.open_tab("https://fine.example/", 3).unwrap();
+    assert!(!s.allows_navigation("https://ads.example/"));
+    assert!(s.allows_navigation("https://fine.example/"));
+}

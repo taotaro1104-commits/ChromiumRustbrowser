@@ -1,0 +1,3 @@
+startup=226.000
+single_page=140.000
+tabs_20=1095.000

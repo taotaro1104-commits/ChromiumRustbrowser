@@ -63,8 +63,8 @@ impl Ctx {
         }
     }
 
-    /// 起動: 前回のセッションを復元し、無ければホームを開く。`--url` があれば新規タブで開く。
-    pub fn start(&mut self, initial_url: Option<&str>) {
+    /// 起動: 前回のセッションを復元し、無ければホームを開く。起動時の URL(`--url` / `--urls-file`)があれば新規タブで開く。
+    pub fn start(&mut self, startup_urls: &[String]) {
         let restored = match self.shell.restore_session(now_ms()) {
             Ok(r) => r,
             Err(e) => {
@@ -73,8 +73,10 @@ impl Ctx {
                 false
             }
         };
-        if let Some(url) = initial_url.filter(|u| !u.is_empty()) {
-            report(self.shell.open_tab(url, now_ms()));
+        if !startup_urls.is_empty() {
+            for url in startup_urls {
+                report(self.shell.open_tab(url, now_ms()));
+            }
         } else if !restored || self.shell.store().state().tabs.is_empty() {
             report(self.shell.open_tab(&self.home_url, now_ms()));
         }
@@ -183,6 +185,12 @@ impl Ctx {
         {
             self.shell.store().host().request_page_state(t.handle);
         }
+    }
+
+    /// ダウンロードの完了を知らせる(今はウィンドウのタイトルに出す。次の更新で元に戻る)。
+    pub fn on_download_complete(&mut self, name: &str) {
+        self.ui
+            .set_window_title(&format!("ダウンロード完了: {name}"));
     }
 
     pub fn take_pending_scroll(&self, tab: TabHandle) -> Option<u32> {

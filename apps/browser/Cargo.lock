@@ -98,11 +98,13 @@ dependencies = [
  "browser-core",
  "cef",
  "ffi-traits",
+ "net-policy",
  "policy",
  "serde",
  "serde_json",
  "shell-core",
  "storage",
+ "url",
 ]
 
 [[package]]

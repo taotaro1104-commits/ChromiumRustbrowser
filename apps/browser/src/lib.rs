@@ -3,11 +3,14 @@
 
 mod app;
 mod ctx;
+mod downloads;
 mod handlers;
 mod host;
+mod net_filter;
 mod page_state;
 mod profile;
 mod start_page;
+mod startup;
 mod tab_layout;
 mod ui;
 

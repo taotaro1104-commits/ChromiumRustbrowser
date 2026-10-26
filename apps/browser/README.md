@@ -16,3 +16,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File apps/browser/run.ps1 [-Relea
 - 診断: プロファイル直下に空の `discard-now` ファイルを置くと、次の Tick(30 秒以内)で非表示のタブを破棄する。
 - 既知の制限(P1 で解消): 凍結は未実装(非表示のみ)、フォーム内容・スクロール位置は保存時に取得しない、
   この環境(AMD GPU)では GPU プロセスが再起動を繰り返すログが出る(描画はソフトウェアにフォールバック)。
+
+## 機能メモ
+- **広告・トラッカーのブロック**: プロファイル直下の `blocklist.txt` を起動時に読む。Adblock Plus 形式の `||ドメイン^`(`$third-party`、
+  例外 `@@||...`)と hosts 形式(`0.0.0.0 ドメイン`)に対応。パス付き・ワイルドカード・他のオプションの規則は無視する(誤って
+  サイトを壊さないため)。上限 30 万規則。画像・スクリプト・iframe などのサブリソースも、アドレス欄・リンク遷移と同じく検査される。
+  リストの自動更新は無い(アップデータの作業)。ファイルが無ければ何もブロックしない。
+- **ダウンロード**: 「ダウンロード」フォルダへ保存。ファイル名はページの指定を信用せず整形し(パス区切り・予約名・末尾ドットの除去)、
+  同名は `名前 (1).拡張子`。**実行形式・スクリプト・ショートカット等(exe/msi/bat/ps1/js/lnk など)は保存しない**。完了はタイトルに出す。
+- **起動時の URL**: `--url=URL`、`--urls-file=PATH`(1 行 1 URL、最大 50 件)。通常の入力と同じ検査を通る。
+- **配布物**: `apps/browser/package.ps1 [-Sign -CertThumbprint <sha1>] [-SmokeTest]` で `dist/RustBrowser-<version>-win-x64.zip` を作る
+  (約 180MB)。署名は signtool(Windows SDK)で SHA-256。証明書はこのリポジトリに置かない。`-SmokeTest` は zip を別の場所へ展開して
+  起動し、ウィンドウが出るまでを確認する。インストーラ(MSI / Inno Setup など)は未作成。
+- **メモリの自動計測**: `bench/memory/run-cef-bench.ps1`(docs/roadmap-cef.md)。
+

@@ -1,5 +1,7 @@
 //! CEF アプリ定義: ブラウザプロセスの初期化でウィンドウと `Ctx` を作る。
 
+use std::sync::Arc;
+
 use cef::*;
 use shell_core::Shell;
 use storage::Db;
@@ -7,8 +9,10 @@ use storage::Db;
 use crate::ctx::{self, Ctx};
 use crate::handlers::{post_ui, post_ui_delayed};
 use crate::host::CefHost;
+use crate::net_filter;
 use crate::profile::profile_dir;
 use crate::start_page;
+use crate::startup;
 use crate::ui::Ui;
 
 /// 定期 Tick の間隔。凍結(5 分)・破棄(30 分)の判定とセッション保存に使う。
@@ -46,7 +50,11 @@ wrap_browser_process_handler! {
             };
 
             let (ui, content) = Ui::build();
+            // ブロックリスト(任意): プロファイル直下の blocklist.txt(Adblock Plus 形式または hosts 形式)。
+            let blocker = Arc::new(load_blocklist(&dir));
+            net_filter::install(policy.clone(), blocker.clone());
             let mut shell = Shell::new(CefHost::new(content), db, policy);
+            shell.set_content_blocker(blocker);
             let home_url = match start_page::spawn() {
                 Ok(url) => {
                     shell.set_internal_prefix(url.clone());
@@ -60,10 +68,15 @@ wrap_browser_process_handler! {
             };
             ctx::install(Ctx::new(shell, ui, home_url));
 
-            let initial_url = command_line_get_global()
-                .map(|c| CefString::from(&c.switch_value(Some(&CefString::from("url")))).to_string())
-                .unwrap_or_default();
-            let mut delegate = MainWindowDelegate::new(initial_url);
+            let switch = |name: &str| {
+                command_line_get_global()
+                    .map(|c| {
+                        CefString::from(&c.switch_value(Some(&CefString::from(name)))).to_string()
+                    })
+                    .unwrap_or_default()
+            };
+            let startup_urls = startup::collect(&switch("url"), &switch("urls-file"));
+            let mut delegate = MainWindowDelegate::new(startup_urls);
             window_create_top_level(Some(&mut delegate));
         }
     }
@@ -71,7 +84,7 @@ wrap_browser_process_handler! {
 
 wrap_window_delegate! {
     struct MainWindowDelegate {
-        initial_url: String,
+        startup_urls: Vec<String>,
     }
 
     impl ViewDelegate {
@@ -87,7 +100,7 @@ wrap_window_delegate! {
             let Some(window) = window else { return };
             ctx::with(|c| {
                 c.ui.attach(window);
-                c.start(Some(self.initial_url.as_str()));
+                c.start(&self.startup_urls);
             });
             window.show();
             post_ui(|| {
@@ -117,6 +130,23 @@ fn load_policy(dir: &std::path::Path) -> Result<policy::Policy, String> {
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(policy::Policy::default()),
         Err(e) => Err(format!("cannot read {}: {e}", path.display())),
+    }
+}
+
+/// `blocklist.txt` を読む。無ければ空(何もブロックしない)。読めない場合も空にして続行し、理由を出す。
+fn load_blocklist(dir: &std::path::Path) -> net_policy::ListBlocker {
+    let path = dir.join("blocklist.txt");
+    match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            let list = net_policy::ListBlocker::from_list(&text);
+            eprintln!("browser: blocklist loaded: {} rules", list.rule_count());
+            list
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => net_policy::ListBlocker::default(),
+        Err(e) => {
+            eprintln!("browser: cannot read {}: {e}", path.display());
+            net_policy::ListBlocker::default()
+        }
     }
 }
 
