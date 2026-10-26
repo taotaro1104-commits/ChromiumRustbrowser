@@ -1,0 +1,36 @@
+[package]
+name = "browser-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+url = "2"
+policy = { path = "../crates/policy" }
+omnibox = { path = "../crates/omnibox" }
+net-policy = { path = "../crates/net-policy" }
+
+# ルートのワークスペースとは別(nightly 専用、通常の verify には含めない)。
+[workspace]
+
+[[bin]]
+name = "policy_json"
+path = "fuzz_targets/policy_json.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "classify_input"
+path = "fuzz_targets/classify_input.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "decide_request"
+path = "fuzz_targets/decide_request.rs"
+test = false
+doc = false
