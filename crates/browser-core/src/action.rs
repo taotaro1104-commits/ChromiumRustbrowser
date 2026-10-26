@@ -20,6 +20,20 @@ pub enum Action {
         tab: TabHandle,
         url: String,
     },
+    /// ページ側で遷移が確定した(リンク・リダイレクト等)。host 呼び出しは伴わない。
+    Committed {
+        tab: TabHandle,
+        url: String,
+    },
+    /// セッション復元用。host には何も要求せず、破棄状態のタブとして登録する。
+    /// 実体はアクティブ化時の `Effect::Restore` で作られる。
+    RestoreTab {
+        url: String,
+        title: String,
+        scroll_y: u32,
+        form_state: Option<String>,
+        now_ms: u64,
+    },
     UpdateMeta {
         tab: TabHandle,
         title: Option<String>,

@@ -20,6 +20,19 @@ fn redact(action: Action) -> Action {
             scroll_y,
             form_state: Some(Some("<redacted>".into())),
         },
+        Action::RestoreTab {
+            url,
+            title,
+            scroll_y,
+            form_state: Some(_),
+            now_ms,
+        } => Action::RestoreTab {
+            url,
+            title,
+            scroll_y,
+            form_state: Some("<redacted>".into()),
+            now_ms,
+        },
         other => other,
     }
 }

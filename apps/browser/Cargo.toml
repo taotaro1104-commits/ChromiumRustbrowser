@@ -1,0 +1,21 @@
+[package]
+name = "browser"
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+publish = false
+
+# CEF のビルドが必要なため、ルートのワークスペース(verify 対象)には含めない。
+[workspace]
+
+[dependencies]
+cef = "156.2.0"
+shell-core = { path = "../../crates/shell-core" }
+storage = { path = "../../crates/storage" }
+policy = { path = "../../crates/policy" }
+ffi-traits = { path = "../../crates/ffi-traits" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1

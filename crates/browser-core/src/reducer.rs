@@ -35,6 +35,14 @@ pub(crate) fn apply(next: &mut State, action: &Action) -> Vec<Effect> {
         Action::CloseTab { tab, now_ms } => close_tab(next, *tab, *now_ms, &mut fx),
         Action::Activate { tab, now_ms } => activate(next, *tab, *now_ms, &mut fx),
         Action::Navigate { tab, url } => navigate(next, *tab, url, &mut fx),
+        Action::Committed { tab, url } => committed(next, *tab, url),
+        Action::RestoreTab {
+            url,
+            title,
+            scroll_y,
+            form_state,
+            now_ms,
+        } => restore_tab(next, url, title, *scroll_y, form_state.as_deref(), *now_ms),
         Action::UpdateMeta {
             tab,
             title,
@@ -99,6 +107,47 @@ fn open_tab(s: &mut State, url: &str, now: u64, fx: &mut Vec<Effect>) {
     fx.push(Effect::Create {
         tab: handle,
         url: url.to_owned(),
+    });
+}
+
+fn committed(s: &mut State, tab: TabHandle, url: &str) {
+    if !is_allowed_url(url) {
+        return;
+    }
+    if let Some(t) = s.tab_mut(tab) {
+        t.url = url.to_owned();
+        t.scroll_y = 0;
+        t.form_state = None;
+    }
+}
+
+fn restore_tab(
+    s: &mut State,
+    url: &str,
+    title: &str,
+    scroll_y: u32,
+    form_state: Option<&str>,
+    now: u64,
+) {
+    if !is_allowed_url(url) {
+        return;
+    }
+    let handle = TabHandle(s.next_id);
+    s.next_id += 1;
+    s.tabs.push(Tab {
+        handle,
+        url: url.to_owned(),
+        title: title.to_owned(),
+        scroll_y,
+        form_state: form_state
+            .filter(|f| f.len() <= MAX_FORM_STATE_BYTES)
+            .map(str::to_owned),
+        visibility: Visibility::Discarded,
+        hidden_since_ms: Some(now),
+        last_active_ms: now,
+        audible: false,
+        form_editing: false,
+        webrtc: false,
     });
 }
 

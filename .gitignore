@@ -3,3 +3,4 @@ target/
 *.db-wal
 *.db-shm
 .claude/
+apps/browser/target/

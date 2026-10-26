@@ -451,3 +451,82 @@ fn apply_path_matches_pure_reduce() {
     assert_eq!(s.state(), &pure_next);
     assert_eq!(s.state().tab(a).unwrap().visibility, Visibility::Discarded);
 }
+
+#[test]
+fn committed_updates_url_without_host_call_and_resets_scroll() {
+    let mut s = Store::new(MockHost::new());
+    let a = open(&mut s, "https://a.example", 0);
+    s.dispatch(Action::UpdateMeta {
+        tab: a,
+        title: None,
+        scroll_y: Some(50),
+        form_state: None,
+    })
+    .unwrap();
+    let calls = s.host().calls.len();
+    s.dispatch(Action::Committed {
+        tab: a,
+        url: "https://a.example/next".into(),
+    })
+    .unwrap();
+    let t = s.state().tab(a).unwrap();
+    assert_eq!((t.url.as_str(), t.scroll_y), ("https://a.example/next", 0));
+    assert_eq!(s.host().calls.len(), calls);
+    // 危険なスキームは無視する。
+    s.dispatch(Action::Committed {
+        tab: a,
+        url: "javascript:alert(1)".into(),
+    })
+    .unwrap();
+    assert_eq!(s.state().tab(a).unwrap().url, "https://a.example/next");
+}
+
+#[test]
+fn restore_tab_creates_discarded_tab_without_host_call_then_activate_restores() {
+    let mut s = Store::new(MockHost::new());
+    s.dispatch(Action::RestoreTab {
+        url: "https://a.example".into(),
+        title: "A".into(),
+        scroll_y: 77,
+        form_state: Some("q=1".into()),
+        now_ms: 5,
+    })
+    .unwrap();
+    assert!(s.host().calls.is_empty());
+    let a = s.state().tabs[0].handle;
+    assert_eq!(s.state().tab(a).unwrap().visibility, Visibility::Discarded);
+    assert_eq!(s.state().active, None);
+    s.dispatch(Action::Activate { tab: a, now_ms: 6 }).unwrap();
+    assert_eq!(
+        s.host().calls.last(),
+        Some(&HostCall::Restore {
+            tab: a,
+            url: "https://a.example".into(),
+            scroll_y: 77,
+            form_state: Some("q=1".into()),
+        })
+    );
+}
+
+#[test]
+fn restore_tab_rejects_dangerous_url_and_caps_form_state() {
+    let mut s = Store::new(MockHost::new());
+    s.dispatch(Action::RestoreTab {
+        url: "file:///etc/passwd".into(),
+        title: String::new(),
+        scroll_y: 0,
+        form_state: None,
+        now_ms: 0,
+    })
+    .unwrap();
+    assert!(s.state().tabs.is_empty());
+    s.dispatch(Action::RestoreTab {
+        url: "https://a.example".into(),
+        title: String::new(),
+        scroll_y: 0,
+        form_state: Some("x".repeat(MAX_FORM_STATE_BYTES + 1)),
+        now_ms: 0,
+    })
+    .unwrap();
+    assert_eq!(s.state().tabs[0].form_state, None);
+}
