@@ -53,6 +53,10 @@ wrap_client! {
             Some(TabLoadHandler::new(self.tab))
         }
 
+        fn audio_handler(&self) -> Option<AudioHandler> {
+            Some(TabAudioHandler::new(self.tab))
+        }
+
         fn request_handler(&self) -> Option<RequestHandler> {
             Some(TabRequestHandler::new(self.tab))
         }
@@ -117,6 +121,42 @@ wrap_load_handler! {
             }
             post_ui(move || {
                 ctx::with(|c| c.on_load_end(tab, &url));
+            });
+        }
+    }
+}
+
+wrap_audio_handler! {
+    struct TabAudioHandler {
+        tab: TabHandle,
+    }
+
+    impl AudioHandler {
+        /// 既定のパラメータのまま、ストリームの開始・停止だけを受け取る(音声データは使わない)。
+        fn audio_parameters(
+            &self,
+            _browser: Option<&mut Browser>,
+            _params: Option<&mut AudioParameters>,
+        ) -> ::std::os::raw::c_int {
+            1
+        }
+
+        fn on_audio_stream_started(
+            &self,
+            _browser: Option<&mut Browser>,
+            _params: Option<&AudioParameters>,
+            _channels: ::std::os::raw::c_int,
+        ) {
+            let tab = self.tab;
+            post_ui(move || {
+                ctx::with(|c| c.on_audible(tab, true));
+            });
+        }
+
+        fn on_audio_stream_stopped(&self, _browser: Option<&mut Browser>) {
+            let tab = self.tab;
+            post_ui(move || {
+                ctx::with(|c| c.on_audible(tab, false));
             });
         }
     }

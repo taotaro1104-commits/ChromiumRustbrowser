@@ -155,6 +155,11 @@ impl Ctx {
             .unwrap_or_default()
     }
 
+    /// 音声の再生開始・停止。再生中のタブは凍結・破棄から保護される。
+    pub fn on_audible(&mut self, tab: TabHandle, audible: bool) {
+        report(self.shell.set_audible(tab, audible, now_ms()));
+    }
+
     pub fn take_pending_scroll(&self, tab: TabHandle) -> Option<u32> {
         self.shell.store().host().take_pending_scroll(tab)
     }

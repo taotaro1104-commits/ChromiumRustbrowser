@@ -277,3 +277,37 @@ fn restore_skips_policy_blocked_hosts() {
         .collect();
     assert_eq!(urls, vec!["https://ok.example/".to_string()]);
 }
+
+#[test]
+fn audible_hidden_tab_survives_the_discard_timer() {
+    const MIN: u64 = 60_000;
+    let mut s = shell();
+    s.open_tab("https://music.example/", 0).unwrap();
+    let music = s.store().state().active.unwrap();
+    s.open_tab("https://other.example/", 1).unwrap();
+    s.set_audible(music, true, 2).unwrap();
+    s.tick(60 * MIN).unwrap();
+    assert!(
+        !s.store()
+            .host()
+            .calls
+            .iter()
+            .any(|c| matches!(c, HostCall::Discard(t) if *t == music)),
+        "playing tab must not be discarded"
+    );
+
+    s.set_audible(music, false, 61 * MIN).unwrap();
+    s.tick(125 * MIN).unwrap();
+    assert!(s
+        .store()
+        .host()
+        .calls
+        .iter()
+        .any(|c| matches!(c, HostCall::Discard(t) if *t == music)));
+}
+
+#[test]
+fn set_audible_on_unknown_tab_is_a_noop() {
+    let mut s = shell();
+    s.set_audible(ffi_traits::TabHandle(99), true, 1).unwrap();
+}

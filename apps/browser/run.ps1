@@ -17,8 +17,10 @@ $profile = if ($Release) { "release" } else { "debug" }
 if ($Release) { cargo build --release } else { cargo build }
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
+# bootstrap.exe(サンドボックス付き)を `rustbrowser.exe` として置く。同名の DLL の RunWinMain が呼ばれる。
 # 実行ファイルの隣に CEF のランタイムを置く。
 $out = Join-Path $PSScriptRoot "target\$profile"
+Copy-Item (Join-Path $cef "bootstrap.exe") (Join-Path $out "rustbrowser.exe") -Force
 $files = "libcef.dll", "chrome_elf.dll", "d3dcompiler_47.dll", "dxcompiler.dll", "vk_swiftshader.dll",
     "vk_swiftshader_icd.json", "vulkan-1.dll", "icudtl.dat", "resources.pak", "chrome_100_percent.pak",
     "chrome_200_percent.pak", "v8_context_snapshot.bin"
@@ -27,4 +29,4 @@ Copy-Item (Join-Path $cef "locales") $out -Recurse -Force
 
 $args = @()
 if ($Url -ne "") { $args += "--url=$Url" }
-& (Join-Path $out "browser.exe") @args
+& (Join-Path $out "rustbrowser.exe") @args

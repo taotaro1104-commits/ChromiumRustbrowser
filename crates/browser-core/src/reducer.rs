@@ -1,6 +1,6 @@
 use ffi_traits::{MemoryPressure, TabHandle};
 
-use crate::action::{Action, Effect};
+use crate::action::{Action, Effect, FailedOp};
 use crate::state::{State, Tab, Visibility};
 
 /// 非表示になってから凍結するまで(5分)。
@@ -91,6 +91,7 @@ pub(crate) fn apply(next: &mut State, action: &Action) -> Vec<Effect> {
             *now_ms,
             &mut fx,
         ),
+        Action::HostFailed { tab, op } => host_failed(next, *tab, *op, &mut fx),
         Action::Tick { now_ms } => tick(next, *now_ms, &mut fx),
         Action::MemoryPressure { level } => memory_pressure(next, *level, &mut fx),
     }
@@ -180,6 +181,52 @@ fn close_tab(s: &mut State, tab: TabHandle, now: u64, fx: &mut Vec<Effect>) {
             .map(|t| t.handle);
         if let Some(h) = successor {
             activate(s, h, now, fx);
+        }
+    }
+}
+
+/// host の操作が失敗したときの巻き戻し。実体の無いタブを Active のまま残さない。
+/// - Create: 実体が無いのでタブごと取り除き、直前に使っていたタブへ戻る。
+/// - Restore: 破棄状態に戻す(表示タブは無し。次の選択で再試行できる)。
+/// - Navigate: 実体が壊れているとみなし、破棄状態から作り直す。それも失敗すれば Restore の扱いになる。
+fn host_failed(s: &mut State, tab: TabHandle, op: FailedOp, fx: &mut Vec<Effect>) {
+    let now = s.tabs.iter().map(|t| t.last_active_ms).max().unwrap_or(0);
+    match op {
+        FailedOp::Create => {
+            let Some(pos) = s.tabs.iter().position(|t| t.handle == tab) else {
+                return;
+            };
+            s.tabs.remove(pos);
+            if s.active == Some(tab) {
+                s.active = None;
+                let successor = s
+                    .tabs
+                    .iter()
+                    .max_by_key(|t| t.last_active_ms)
+                    .map(|t| t.handle);
+                if let Some(h) = successor {
+                    activate(s, h, now, fx);
+                }
+            }
+        }
+        FailedOp::Restore => {
+            if let Some(t) = s.tab_mut(tab) {
+                t.visibility = Visibility::Discarded;
+                t.hidden_since_ms = None;
+            }
+            if s.active == Some(tab) {
+                s.active = None;
+            }
+        }
+        FailedOp::Navigate => {
+            let was_active = s.active == Some(tab);
+            if let Some(t) = s.tab_mut(tab) {
+                t.visibility = Visibility::Discarded;
+            }
+            if was_active {
+                s.active = None;
+                activate(s, tab, now, fx);
+            }
         }
     }
 }

@@ -47,6 +47,11 @@ pub enum Action {
         webrtc: bool,
         now_ms: u64,
     },
+    /// host の副作用が失敗した。State を実体と食い違わない状態へ戻す。`Store` が自動で発行する。
+    HostFailed {
+        tab: TabHandle,
+        op: FailedOp,
+    },
     /// 定期タイマー。時間経過による凍結・破棄を判断する。
     Tick {
         now_ms: u64,
@@ -54,6 +59,14 @@ pub enum Action {
     MemoryPressure {
         level: MemoryPressure,
     },
+}
+
+/// 失敗した host 操作の種類(State の巻き戻し方が変わるもの)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailedOp {
+    Create,
+    Navigate,
+    Restore,
 }
 
 /// reduce が返す副作用の指示。

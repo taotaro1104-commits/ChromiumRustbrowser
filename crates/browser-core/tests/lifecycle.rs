@@ -254,7 +254,7 @@ fn unknown_tab_actions_are_noops() {
 }
 
 #[test]
-fn host_failure_is_reported_but_state_is_still_updated() {
+fn host_failure_is_reported_and_state_is_rolled_back() {
     let mut s = Store::new(MockHost::new());
     s.host_mut().fail_with = Some(HostError::Failed("x".into()));
     assert!(s
@@ -263,7 +263,8 @@ fn host_failure_is_reported_but_state_is_still_updated() {
             now_ms: 0
         })
         .is_err());
-    assert_eq!(s.state().tabs.len(), 1);
+    // 実体を作れなかったタブは State に残さない。
+    assert!(s.state().tabs.is_empty());
 }
 
 #[test]
@@ -579,4 +580,93 @@ fn page_titles_are_clipped() {
         s.state().tab(t).unwrap().title.chars().count(),
         MAX_TITLE_CHARS
     );
+}
+
+fn failing(op: &'static str) -> Store<MockHost> {
+    let mut host = MockHost::new();
+    host.fail_ops = vec![op];
+    Store::new(host)
+}
+
+#[test]
+fn failed_create_removes_the_ghost_tab_and_returns_to_the_previous_one() {
+    let mut s = Store::new(MockHost::new());
+    let a = open(&mut s, "https://a.example", 0);
+    s.host_mut().fail_ops = vec!["create"];
+    let r = s.dispatch(Action::OpenTab {
+        url: "https://b.example".into(),
+        now_ms: 10,
+    });
+    assert!(r.is_err(), "the original error is still reported");
+    assert_eq!(s.state().tabs.len(), 1);
+    assert_eq!(s.state().active, Some(a));
+    assert_eq!(s.state().tab(a).unwrap().visibility, Visibility::Active);
+}
+
+#[test]
+fn failed_create_of_the_only_tab_leaves_an_empty_state() {
+    let mut s = failing("create");
+    let _ = s.dispatch(Action::OpenTab {
+        url: "https://a.example".into(),
+        now_ms: 0,
+    });
+    assert!(s.state().tabs.is_empty());
+    assert_eq!(s.state().active, None);
+}
+
+#[test]
+fn failed_restore_puts_the_tab_back_to_discarded() {
+    let mut s = Store::new(MockHost::new());
+    let a = open(&mut s, "https://a.example", 0);
+    let _b = open(&mut s, "https://b.example", 10);
+    s.dispatch(Action::MemoryPressure {
+        level: MemoryPressure::Critical,
+    })
+    .unwrap();
+    assert_eq!(s.state().tab(a).unwrap().visibility, Visibility::Discarded);
+
+    s.host_mut().fail_ops = vec!["restore"];
+    let r = s.dispatch(Action::Activate { tab: a, now_ms: 20 });
+    assert!(r.is_err());
+    assert_eq!(s.state().tab(a).unwrap().visibility, Visibility::Discarded);
+    assert_eq!(s.state().active, None);
+
+    // 復旧後にもう一度選べば実体が作られる。
+    s.host_mut().fail_ops.clear();
+    s.dispatch(Action::Activate { tab: a, now_ms: 30 }).unwrap();
+    assert_eq!(s.state().active, Some(a));
+    assert!(matches!(
+        s.host().calls.last(),
+        Some(HostCall::Restore { tab, .. }) if *tab == a
+    ));
+}
+
+#[test]
+fn failed_navigate_recreates_the_page_from_the_new_url() {
+    let mut s = Store::new(MockHost::new());
+    let a = open(&mut s, "https://a.example", 0);
+    s.host_mut().fail_ops = vec!["navigate"];
+    let r = s.dispatch(Action::Navigate {
+        tab: a,
+        url: "https://next.example/".into(),
+    });
+    assert!(r.is_err());
+    assert_eq!(s.state().active, Some(a));
+    assert!(matches!(
+        s.host().calls.last(),
+        Some(HostCall::Restore { tab, url, .. }) if *tab == a && url == "https://next.example/"
+    ));
+}
+
+#[test]
+fn rollback_chain_terminates_when_everything_fails() {
+    let mut s = Store::new(MockHost::new());
+    s.host_mut().fail_with = Some(HostError::Failed("down".into()));
+    for i in 0..5 {
+        let _ = s.dispatch(Action::OpenTab {
+            url: format!("https://a.example/{i}"),
+            now_ms: i,
+        });
+    }
+    assert!(s.state().tabs.is_empty());
 }

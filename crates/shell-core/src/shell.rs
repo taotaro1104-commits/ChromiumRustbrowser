@@ -95,6 +95,27 @@ impl<H: WebContentsHost> Shell<H> {
         Ok(self.store.dispatch(Action::CloseTab { tab, now_ms })?)
     }
 
+    /// 音声の再生状態を反映する。再生中のタブは凍結・破棄の対象から外れる。
+    /// 他のフラグ(入力中・WebRTC)は今の値を保つ。
+    pub fn set_audible(
+        &mut self,
+        tab: TabHandle,
+        audible: bool,
+        now_ms: u64,
+    ) -> Result<(), ShellError> {
+        let Some(t) = self.store.state().tab(tab) else {
+            return Ok(());
+        };
+        let (form_editing, webrtc) = (t.form_editing, t.webrtc);
+        Ok(self.store.dispatch(Action::SetFlags {
+            tab,
+            audible,
+            form_editing,
+            webrtc,
+            now_ms,
+        })?)
+    }
+
     pub fn tick(&mut self, now_ms: u64) -> Result<(), ShellError> {
         Ok(self.store.dispatch(Action::Tick { now_ms })?)
     }

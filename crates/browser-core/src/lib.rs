@@ -6,7 +6,7 @@ mod reducer;
 mod state;
 mod store;
 
-pub use action::{Action, Effect};
+pub use action::{Action, Effect, FailedOp};
 pub use reducer::{
     clip_title, is_allowed_url, reduce, DISCARD_AFTER_MS, FREEZE_AFTER_MS, MAX_FORM_STATE_BYTES,
     MAX_TABS, MAX_TITLE_CHARS, MAX_URL_BYTES,

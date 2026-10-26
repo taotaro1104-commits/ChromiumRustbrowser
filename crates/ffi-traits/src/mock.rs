@@ -20,11 +20,28 @@ pub enum HostCall {
     Close(TabHandle),
 }
 
+impl HostCall {
+    /// 操作名(`MockHost::fail_ops` で指定する)。
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Create(..) => "create",
+            Self::Navigate(..) => "navigate",
+            Self::Freeze(_) => "freeze",
+            Self::Unfreeze(_) => "unfreeze",
+            Self::Discard(_) => "discard",
+            Self::Restore { .. } => "restore",
+            Self::Close(_) => "close",
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct MockHost {
     pub calls: Vec<HostCall>,
     /// `Some` の間は全操作がこのエラーで失敗する。
     pub fail_with: Option<HostError>,
+    /// ここに挙げた操作(`HostCall::name`)だけが失敗する。
+    pub fail_ops: Vec<&'static str>,
 }
 
 impl MockHost {
@@ -38,6 +55,9 @@ impl MockHost {
                 HostError::UnknownTab(t) => HostError::UnknownTab(*t),
                 HostError::Failed(m) => HostError::Failed(m.clone()),
             });
+        }
+        if self.fail_ops.contains(&call.name()) {
+            return Err(HostError::Failed(format!("{} failed", call.name())));
         }
         self.calls.push(call);
         Ok(())

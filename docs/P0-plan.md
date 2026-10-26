@@ -78,11 +78,22 @@
 - 復元に失敗した起動で古いセッションを上書き → その起動は自動保存を止める。
 - スクロール位置の持ち越し(`pending_scroll`)、フォールバックホームが履歴から外れる問題、拒否された入力が欄に残る問題。
 
+続けて対応した 3 件:
+- **サンドボックス有効化**: CEF の `bootstrap.exe`(サンドボックス用ライブラリ内蔵)を `rustbrowser.exe` として置き、
+  同名の `rustbrowser.dll`(このクレートの cdylib)の `RunWinMain` を呼ばせる構成にした。`sandbox_info` を
+  `execute_process` / `initialize` に渡し、`no_sandbox` は 0 固定(無効化する設定は持たない)。`unsafe` は `RunWinMain` の
+  C ABI 境界だけ。実機で、レンダラーが Untrusted(整合性レベル 0x0)、GPU が Low、ブラウザが Medium で動くことを確認。
+- **再生中タブの保護**: `AudioHandler` の開始/停止を `Shell::set_audible`(`SetFlags`)に配線。再生中の非表示タブは 30 分経っても
+  破棄されない(shell-core のテスト 2 件)。実機でローカルの音声ページを再生し、開始イベントが届くことを確認。
+  再生音が実際に出ているか(キャプチャで消音されないか)は未確認なので、手元で聞いて確認すること。
+- **ホスト操作の失敗時の巻き戻し**: `Store` が失敗した `Create` / `Restore` / `Navigate` を `Action::HostFailed` に変換して State を戻す。
+  Create 失敗=タブを取り除き直前のタブへ、Restore 失敗=破棄状態へ(再選択で再試行)、Navigate 失敗=新 URL で作り直す。
+  連鎖は 1 回の dispatch で 16 回まで。テスト 5 件(モックに操作別の失敗注入 `fail_ops` を追加)。
+
 未対応(P1 で扱う):
-- サンドボックス無効(`no_sandbox=1`)。bootstrap exe 方式の導入が必要。公開前の必須項目。
-- 再生中(audible)・WebRTC・入力中のフラグと、スクロール/フォーム状態の取得が未配線。30 分放置の破棄で再生が止まる可能性がある。
-- ホスト操作の失敗時に State を巻き戻す補償 Action。
-- `about:blank` 以外の履歴/セッションに残る URL の秘匿情報(ユーザー情報・クエリ)の除去。
+- 入力中(`form_editing`)・WebRTC のフラグ、スクロール位置・フォーム状態の取得(JS 経由の取得が必要)。
+- URL に含まれる認証情報やクエリの履歴・セッションでの秘匿。
+- Windows のサンドボックスは `bootstrap.exe` 前提。リリース配布では署名・インストーラとの整合が必要。
 
 ### 残課題(P1 以降)
 - 凍結の実装(Content API)、フォーム内容の復元、サンドボックス有効化。

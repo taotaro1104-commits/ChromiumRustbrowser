@@ -5,6 +5,11 @@ edition = "2024"
 license = "MPL-2.0"
 publish = false
 
+# bootstrap.exe(サンドボックス付き)が `rustbrowser.dll` の `RunWinMain` を呼ぶ構成。
+[lib]
+name = "rustbrowser"
+crate-type = ["cdylib"]
+
 # CEF のビルドが必要なため、ルートのワークスペース(verify 対象)には含めない。
 [workspace]
 
