@@ -74,3 +74,68 @@ fn current_process_mb() -> Result<f64, String> {
     let p = sys.process(pid).ok_or("current process not found")?;
     Ok(p.memory() as f64 / MB)
 }
+
+/// 名前が `name`(拡張子と大文字小文字を無視)に一致するプロセスの Private メモリ(MB)の合計と個数。
+/// 一致するものが無ければ `None`。純粋関数にして、OS に依らずテストできるようにしている。
+pub fn sum_matching_mb(procs: &[(String, u64)], name: &str) -> Option<(f64, usize)> {
+    let want = stem(name);
+    let matched: Vec<u64> = procs
+        .iter()
+        .filter(|(n, _)| stem(n) == want)
+        .map(|(_, bytes)| *bytes)
+        .collect();
+    (!matched.is_empty()).then(|| (matched.iter().sum::<u64>() as f64 / MB, matched.len()))
+}
+
+fn stem(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    lower.strip_suffix(".exe").unwrap_or(&lower).to_owned()
+}
+
+/// 起動中のプロセス群(`name` に一致するもの全部)の Private メモリ合計(MB)とプロセス数を 1 回測る。
+/// Windows の `virtual_memory` はコミット済みのプライベートバイト(Private Bytes)にあたる。
+pub fn measure_attached_mb(name: &str) -> Result<(f64, usize), String> {
+    let mut sys = System::new();
+    sys.refresh_processes(ProcessesToUpdate::All, true);
+    let procs: Vec<(String, u64)> = sys
+        .processes()
+        .values()
+        .map(|p| (p.name().to_string_lossy().into_owned(), p.virtual_memory()))
+        .collect();
+    sum_matching_mb(&procs, name).ok_or_else(|| format!("no running process named {name:?}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn procs() -> Vec<(String, u64)> {
+        let mb = 1024 * 1024;
+        vec![
+            ("rustbrowser.exe".into(), 100 * mb),
+            ("RustBrowser.EXE".into(), 50 * mb),
+            ("rustbrowser-helper.exe".into(), 7 * mb),
+            ("chrome.exe".into(), 900 * mb),
+        ]
+    }
+
+    #[test]
+    fn sums_only_matching_processes_ignoring_case_and_extension() {
+        assert_eq!(sum_matching_mb(&procs(), "rustbrowser"), Some((150.0, 2)));
+        assert_eq!(
+            sum_matching_mb(&procs(), "RUSTBROWSER.exe"),
+            Some((150.0, 2))
+        );
+    }
+
+    #[test]
+    fn no_match_is_none() {
+        assert_eq!(sum_matching_mb(&procs(), "firefox"), None);
+        assert_eq!(sum_matching_mb(&[], "rustbrowser"), None);
+    }
+
+    #[test]
+    fn unknown_process_is_an_error_for_the_live_measurement() {
+        assert!(measure_attached_mb("definitely-not-running-xyz").is_err());
+    }
+}

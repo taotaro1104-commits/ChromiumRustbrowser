@@ -31,8 +31,19 @@
 - 破棄(メモリ圧迫と同じ動作)で **1,592MB → 396MB(約 75% 減)**、プロセスは 39 → 7。レンダラーが順に終了するため、約 90 秒かかる。
   修正前(`do_close` 未対応)はほとんど減らなかった。
 - 以前の参考値(起動 219〜242 / 1 枚 268〜289 / 20 タブ約 1,660)と今回の実測は ±10% 以内で一致した。
-- `memory-bench` は現状 Rust 側だけを自動計測する。3 つの CEF シナリオは、起動中の `rustbrowser` のプロセス合計を測る
-  `--attach` モードを足して自動化する(次の作業)。1 回計測なので、自動化したら中央値(3 回)で取り直す。
+- `memory-bench` で 3 つの CEF シナリオも自動判定できる(`--attach`)。**状態を作るのは呼び出し側**で、起動中の
+  `rustbrowser` の全プロセスの Private メモリ合計を間隔を空けて測り、中央値で予算・前回比を判定する。
+
+```
+# 例: 20 タブを開いた状態で測る(--samples 3 --interval-secs 5 が既定)
+cargo run -p memory-bench -- --attach rustbrowser --scenario tabs_20 --baseline bench/memory/baseline.txt
+# 判定が通ったら前回値を更新(測っていないシナリオの値は残る)
+cargo run -p memory-bench -- --attach rustbrowser --scenario tabs_20 --baseline bench/memory/baseline.txt --write-baseline
+```
+
+  シナリオ名は `startup` / `single_page` / `tabs_20`。終了コードは、通過 0、予算超過または前回比 +5% 超で 1、引数・計測の失敗で 2。
+  PowerShell の `Get-Process` の Private 合計と一致することを実機で確認(起動直後 215MB / 6 プロセス)。
+  タブを開く操作の自動化(UI 操作)はまだ無く、CI へ入れるには別途ドライバが要る。
 
 ## 次の作業(優先順)
 1. **配布の土台**: `bootstrap.exe` 構成のパッケージ化(署名、インストーラ、CEF 更新手順)。

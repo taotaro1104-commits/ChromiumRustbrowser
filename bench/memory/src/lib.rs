@@ -5,7 +5,7 @@
 
 mod workload;
 
-pub use workload::measure_rust_side_mb;
+pub use workload::{measure_attached_mb, measure_rust_side_mb, sum_matching_mb};
 
 /// 前日比の増加がこの割合を超えたら回帰とみなす(5%)。
 pub const REGRESSION_RATIO: f64 = 1.05;
@@ -29,6 +29,11 @@ impl Scenario {
         Scenario::Tabs20,
         Scenario::RustSide,
     ];
+
+    /// `name()` の逆引き。
+    pub fn from_name(name: &str) -> Option<Scenario> {
+        Scenario::ALL.into_iter().find(|s| s.name() == name)
+    }
 
     pub fn name(self) -> &'static str {
         match self {
@@ -119,6 +124,14 @@ mod tests {
             .filter(|s| s.measurable_in_m0())
             .collect();
         assert_eq!(m, [&Scenario::RustSide]);
+    }
+
+    #[test]
+    fn scenario_names_round_trip() {
+        for s in Scenario::ALL {
+            assert_eq!(Scenario::from_name(s.name()), Some(s));
+        }
+        assert_eq!(Scenario::from_name("nope"), None);
     }
 
     #[test]
